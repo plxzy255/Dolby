@@ -17,7 +17,7 @@ WEIGHTS = {
 }
 
 
-def _score(spec: dict[str, Any]) -> dict[str, Any]:
+def _score(spec: dict[str, Any], weights: dict[str, float]) -> dict[str, Any]:
     v = spec["video"]
     dv = v["dolby_vision"]
 
@@ -27,26 +27,26 @@ def _score(spec: dict[str, Any]) -> dict[str, Any]:
     atmos = any(a.get("atmos") is True for a in spec["audio"])
 
     br = v.get("bit_rate_mbps") or 0
-    br_score = min(br / 80.0, 1.0) * WEIGHTS["bit_rate_mbps"]
+    br_score = min(br / 80.0, 1.0) * weights["bit_rate_mbps"]
 
     _, h = v.get("width") or 0, v.get("height") or 0
     if h >= 2000:
-        res_score = WEIGHTS["resolution"]
+        res_score = weights["resolution"]
     elif h >= 1000:
-        res_score = WEIGHTS["resolution"] * 0.5
+        res_score = weights["resolution"] * 0.5
     elif h > 0:
-        res_score = WEIGHTS["resolution"] * 0.2
+        res_score = weights["resolution"] * 0.2
     else:
         res_score = 0
 
     sub_count = len(spec["subtitles"])
-    sub_score = min(sub_count / 5.0, 1.0) * WEIGHTS["subtitles"]
+    sub_score = min(sub_count / 5.0, 1.0) * weights["subtitles"]
 
     components = {
-        "dv_present": WEIGHTS["dv_present"] if dv_present else 0,
-        "dv_fourcc_ok": WEIGHTS["dv_fourcc_ok"] if dv_fourcc_ok else 0,
-        "hdr10_plus": WEIGHTS["hdr10_plus"] if hdr10_plus else 0,
-        "atmos": WEIGHTS["atmos"] if atmos else 0,
+        "dv_present": weights["dv_present"] if dv_present else 0,
+        "dv_fourcc_ok": weights["dv_fourcc_ok"] if dv_fourcc_ok else 0,
+        "hdr10_plus": weights["hdr10_plus"] if hdr10_plus else 0,
+        "atmos": weights["atmos"] if atmos else 0,
         "bit_rate_mbps": round(br_score, 1),
         "resolution": round(res_score, 1),
         "subtitles": round(sub_score, 1),
@@ -115,7 +115,7 @@ def _winners(rows: list[dict[str, Any]]) -> dict[str, list[int]]:
     return winners
 
 
-def compare_files(paths: list[str]) -> dict[str, Any]:
+def compare_files(paths: list[str], weights: dict[str, float] | None = None) -> dict[str, Any]:
     specs: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     for p in paths:
@@ -124,8 +124,14 @@ def compare_files(paths: list[str]) -> dict[str, Any]:
         except Exception as e:  # noqa: BLE001
             errors.append({"path": p, "error": str(e)})
 
+    effective_weights = dict(WEIGHTS)
+    if weights:
+        for k, v in weights.items():
+            if k in effective_weights:
+                effective_weights[k] = float(v)
+
     rows = [_summary_row(s) for s in specs]
-    scores = [_score(s) for s in specs]
+    scores = [_score(s, effective_weights) for s in specs]
 
     if scores:
         best_total = max(s["total"] for s in scores)
@@ -138,4 +144,5 @@ def compare_files(paths: list[str]) -> dict[str, Any]:
         "winners": _winners(rows),
         "specs": specs,  # full data, in case UI wants drill-down
         "errors": errors,
+        "weights": effective_weights,
     }

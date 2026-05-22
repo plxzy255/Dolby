@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -47,6 +48,7 @@ class PathPayload(BaseModel):
 
 class PathsPayload(BaseModel):
     paths: list[str]
+    weights: dict[str, float] | None = None
 
 
 @app.post("/api/inspect")
@@ -63,7 +65,21 @@ async def api_compare(body: PathsPayload) -> dict[str, Any]:
     paths = [_normalize_path(p) for p in body.paths]
     if not paths:
         raise HTTPException(status_code=400, detail="no paths provided")
-    return compare_files(paths)
+    return compare_files(paths, body.weights)
+
+
+@app.get("/api/capabilities")
+async def api_capabilities() -> dict[str, Any]:
+    return {
+        "platform": os.uname().sysname,
+        "tools": {
+            "ffprobe": shutil.which("ffprobe") is not None,
+            "mediainfo": shutil.which("mediainfo") is not None,
+            "osascript": shutil.which("osascript") is not None,
+            "log": shutil.which("log") is not None,
+            "mdfind": shutil.which("mdfind") is not None,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------

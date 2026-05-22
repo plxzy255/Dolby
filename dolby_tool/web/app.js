@@ -130,6 +130,25 @@ function bindDropzone(zone, onPath, { multi = false } = {}) {
   });
 }
 
+
+
+async function loadCapabilities() {
+  try {
+    const caps = await get('/api/capabilities');
+    const missing = [];
+    for (const [k, ok] of Object.entries(caps.tools || {})) {
+      if (!ok) missing.push(k);
+    }
+    const banner = $('#capabilities-banner');
+    if (missing.length) {
+      banner.hidden = false;
+      banner.textContent = `Limited environment detected (${caps.platform}): missing tools: ${missing.join(', ')}.`;
+    }
+  } catch (_e) { }
+}
+
+loadCapabilities();
+
 // ---------------------------------------------------------------------------
 // tabs
 
@@ -321,6 +340,18 @@ function renderSpec(spec) {
 
 const comparePaths = new Set();
 
+function compareWeightsFromUi() {
+  return {
+    dv_present: Number($('#w-dv-present').value || 0),
+    dv_fourcc_ok: Number($('#w-dv-fourcc').value || 0),
+    hdr10_plus: Number($('#w-hdr10plus').value || 0),
+    atmos: Number($('#w-atmos').value || 0),
+    bit_rate_mbps: Number($('#w-bitrate').value || 0),
+    resolution: Number($('#w-resolution').value || 0),
+    subtitles: Number($('#w-subtitles').value || 0),
+  };
+}
+
 function renderCompareList() {
   const ul = $('#compare-list');
   ul.innerHTML = '';
@@ -370,7 +401,7 @@ $('#compare-go').addEventListener('click', async () => {
   if (comparePaths.size < 1) { alert('Add at least one file.'); return; }
   out.innerHTML = '<div class="card"><h2>Comparing…</h2></div>';
   try {
-    const res = await api('/api/compare', { paths: Array.from(comparePaths) });
+    const res = await api('/api/compare', { paths: Array.from(comparePaths), weights: compareWeightsFromUi() });
     out.innerHTML = '';
     out.appendChild(renderCompare(res));
   } catch (e) {
