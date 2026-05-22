@@ -16,15 +16,12 @@ streaming (Apple TV+) and FigFilePlayer (local library) paths.
 from __future__ import annotations
 
 import asyncio
-import os
 import re
-import shlex
 import signal
 import subprocess
 import threading
 import time
 from typing import Any
-
 
 PREDICATE = (
     'process == "mediaplaybackd"'
@@ -39,7 +36,8 @@ PREDICATE = (
 # regexes — kept loose, errors of omission are fine, errors of commission are not
 
 
-# FigAlternate(504) [Peak/Avg 30570719/24765202] [3840x1606] [dvh1.05.06,ec-3] [VideoRange PQ] [HDCP Type1] [FrameRate 23.976]
+# FigAlternate(504) [Peak/Avg 30570719/24765202] [3840x1606] [dvh1.05.06,ec-3]
+# [VideoRange PQ] [HDCP Type1] [FrameRate 23.976]
 RE_FIG_ALT = re.compile(
     r"FigAlternate\((?P<id>\d+)\)"
     r"(?:\s*\[Peak/Avg\s+(?P<peak>\d+)/(?P<avg>\d+)\])?"

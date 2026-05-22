@@ -16,7 +16,6 @@ import shutil
 import subprocess
 from typing import Any
 
-
 FFPROBE = "ffprobe"
 MEDIAINFO = "mediainfo"
 

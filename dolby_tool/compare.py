@@ -5,7 +5,6 @@ from typing import Any
 
 from .inspect import inspect_file
 
-
 # Score weights — tunable. Higher = more impactful on overall score.
 WEIGHTS = {
     "dv_present": 25,
@@ -30,7 +29,7 @@ def _score(spec: dict[str, Any]) -> dict[str, Any]:
     br = v.get("bit_rate_mbps") or 0
     br_score = min(br / 80.0, 1.0) * WEIGHTS["bit_rate_mbps"]
 
-    w, h = v.get("width") or 0, v.get("height") or 0
+    _, h = v.get("width") or 0, v.get("height") or 0
     if h >= 2000:
         res_score = WEIGHTS["resolution"]
     elif h >= 1000:

@@ -16,7 +16,6 @@ from .compare import compare_files
 from .inspect import InspectError, inspect_file
 from .tvlog import LogCapture
 
-
 WEB_DIR = Path(__file__).parent / "web"
 
 app = FastAPI(title="dolby-tool", version="0.1.0")

@@ -20,4 +20,4 @@ command -v ffprobe >/dev/null 2>&1 || {
 # Open browser after a short delay
 ( sleep 1 && open "http://localhost:7878" ) &
 
-exec uv run python -m dolby_tool "$@"
+exec uv run dolby-tool "$@"
