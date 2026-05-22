@@ -67,7 +67,6 @@ function audioLabel(audio) {
     audio.channels ? `ch=${audio.channels}` : null,
     audio.sample_rate ? `${audio.sample_rate} Hz` : null,
     audio.spatialization ? `spat=${audio.spatialization}` : null,
-    audio.decodable === true ? 'decodable' : audio.decodable === false ? 'not decodable' : null,
   ].filter(Boolean);
   return parts.length ? parts.join(' ') : '—';
 }

@@ -96,6 +96,43 @@ def test_tv_capture_keeps_current_best_and_observed_audio():
     ]
 
 
+def test_audio_status_text_is_normalized_from_codec_labels():
+    lines = [
+        "AUDIO_FORMAT table:",
+        "[AudioFormat aacp is decodable ch=2]",
+        "[AudioFormat qaac is decodable ch=2]",
+        "[AudioFormat qc+3 is decodable ch=16]",
+        "AUDIO_FORMAT ec+3 ch=16",
+    ]
+    events = [_parse_line(line) for line in lines]
+    assert events[0] is None
+    assert all(event is not None for event in events[1:])
+
+    capture = LogCapture()
+    capture.events = [event for event in events if event is not None]
+    playback = capture.summarize()["playback"]
+
+    assert playback["audio"]["format"] == "ec+3"
+    assert playback["audio"]["channels"] == 16
+    assert playback["audio"]["decodable"] is None
+    assert playback["best_audio"]["format"] == "qc+3"
+    assert playback["best_audio"]["channels"] == 16
+    assert playback["best_audio"]["decodable"] is True
+    assert [audio["format"] for audio in playback["observed_audio"]] == [
+        "aacp",
+        "qaac",
+        "qc+3",
+        "ec+3",
+    ]
+    assert [audio["channels"] for audio in playback["observed_audio"]] == [2, 2, 16, 16]
+    assert [audio["decodable"] for audio in playback["observed_audio"]] == [
+        True,
+        True,
+        True,
+        None,
+    ]
+
+
 def test_compare_uses_custom_weights(monkeypatch):
     spec = {
         "path": "/tmp/a.mp4",
