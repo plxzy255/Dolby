@@ -29,7 +29,7 @@ def _score(spec: dict[str, Any], weights: dict[str, float]) -> dict[str, Any]:
     br = v.get("bit_rate_mbps") or 0
     br_score = min(br / 80.0, 1.0) * weights["bit_rate_mbps"]
 
-    _, h = v.get("width") or 0, v.get("height") or 0
+    h = v.get("height") or 0
     if h >= 2000:
         res_score = weights["resolution"]
     elif h >= 1000:
@@ -92,16 +92,15 @@ def _winners(rows: list[dict[str, Any]]) -> dict[str, list[int]]:
         return {}
     winners: dict[str, list[int]] = {}
 
-    def best(key: str, *, higher: bool = True, falsy_is_loss: bool = True) -> list[int]:
+    def best(key: str, *, falsy_is_loss: bool = True) -> list[int]:
         values = [(i, r.get(key)) for i, r in enumerate(rows)]
-        # filter out None / falsy if requested
         present = [(i, v) for i, v in values if v is not None and (not falsy_is_loss or v)]
         if not present:
             return []
         if isinstance(present[0][1], bool):
             top = any(v for _, v in present)
             return [i for i, v in present if v == top and top]
-        best_val = max((v for _, v in present), key=lambda x: x if higher else -x)
+        best_val = max(v for _, v in present)
         return [i for i, v in present if v == best_val]
 
     winners["video_bitrate_mbps"] = best("video_bitrate_mbps")

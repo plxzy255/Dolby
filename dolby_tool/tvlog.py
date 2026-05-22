@@ -432,7 +432,7 @@ def _normalize_audio_fields(
 
 def _audio_summary(event: dict[str, Any]) -> dict[str, Any]:
     audio_format = (event.get("format") or "").lower()
-    is_known_atmos = audio_format in {"ec+3", "ec-3", "ec3"} and event.get("spatialization") == "yes"
+    is_known_atmos = audio_format in {"ec+3", "ec-3", "ec3", "qc+3"} and event.get("spatialization") == "yes"
     summary = {
         "format": event.get("format"),
         "channels": event.get("channels"),
@@ -464,11 +464,10 @@ def _audio_key(event: dict[str, Any]) -> tuple[Any, ...]:
 def _audio_rank(event: dict[str, Any]) -> tuple[int, int, int]:
     audio_format = (event.get("format") or "").lower()
     channels = event.get("channels") or 0
-    if audio_format in {"ec+3", "ec-3", "ec3", "qc+3"} and channels >= 16:
+    is_dolby = audio_format in {"ec+3", "ec-3", "ec3", "qc+3"}
+    if is_dolby and channels >= 16:
         tier = 5
-    elif audio_format in {"ec+3", "ec-3", "ec3"} and channels > 2:
-        tier = 4
-    elif audio_format == "qc+3" and channels > 2:
+    elif is_dolby and channels > 2:
         tier = 4
     elif audio_format in {"ac-3", "ac3"} and channels > 2:
         tier = 3

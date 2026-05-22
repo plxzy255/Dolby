@@ -66,8 +66,8 @@ def test_qdh1_cloud_capture_is_recognized_but_not_confirmed_dv():
     assert playback["source"] == "hls"
     assert playback["decoded_fourcc"] == "qdh1"
     assert playback["dolby_vision_active"] is None
-    assert playback["dv_label"] == "Possibly DV / Apple private HDR path"
-    assert "known hvc1 fallback" in playback["dv_diagnosis"]
+    assert playback["dv_label"] == "Apple HLS private HDR/DV path (qdh1)"
+    assert "Apple's private CoreMedia" in playback["dv_diagnosis"]
     assert playback["file_player"]["encryption_scheme"] == 4
     assert playback["audio"]["format"] == "qc+3"
     assert playback["audio"]["channels"] == 16

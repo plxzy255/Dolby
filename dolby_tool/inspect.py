@@ -161,10 +161,9 @@ def inspect_file(path: str) -> dict[str, Any]:
         raise InspectError("no video stream found")
 
     vstream = video_streams[0]
-    vstream_video_index = 0  # first video stream
 
     try:
-        first = _ffprobe_first_frame(path, vstream_video_index)
+        first = _ffprobe_first_frame(path, 0)
         frame_side = (first.get("frames") or [{}])[0].get("side_data_list") or []
     except (InspectError, IndexError):
         frame_side = []

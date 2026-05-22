@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from .compare import compare_files
 from .inspect import InspectError, inspect_file
-from .tvlog import LogCapture
+from .tvlog import PREDICATE, LogCapture
 
 WEB_DIR = Path(__file__).parent / "web"
 
@@ -220,7 +220,7 @@ async def ws_tvlog(ws: WebSocket) -> None:
                     _capture = LogCapture()
                     _capture.start(loop)
                     queue = _capture.subscribe()
-                await ws.send_json({"type": "started", "predicate": _capture.events})
+                await ws.send_json({"type": "started", "predicate": PREDICATE})
                 # Pump events to client while capture is live
                 asyncio.create_task(_pump(ws, queue))
 
