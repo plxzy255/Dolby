@@ -52,6 +52,14 @@ function kv(k, v, pillClass) {
   return el('div', { class: 'kv' }, el('span', { class: 'k' }, k), valueEl);
 }
 
+function tvDecodedFourccClass(fourcc) {
+  const f = (fourcc || '').toLowerCase();
+  if (f.startsWith('dv')) return 'good';
+  if (f === 'qdh1') return 'warn';
+  if (f === 'hvc1') return 'bad';
+  return 'neutral';
+}
+
 // Last directory successfully resolved — passed as hint to /api/find so the
 // find(1) fallback searches there first (useful for external volumes Spotlight skips).
 let _lastResolvedDir = '';
@@ -614,6 +622,7 @@ function renderCaptureSummary(summary) {
     p.source === 'hls' ? 'Source: HLS (Apple TV+ / streaming)' : p.source === 'local_file' ? 'Source: Local file' : 'Source: unknown'));
   if (p.dolby_vision_active === true) pills.appendChild(el('span', { class: 'pill good' }, 'Dolby Vision active'));
   else if (p.dolby_vision_active === false) pills.appendChild(el('span', { class: 'pill bad' }, 'Dolby Vision NOT active'));
+  else if (p.dv_label) pills.appendChild(el('span', { class: 'pill warn' }, p.dv_label));
   if (p.audio && p.audio.is_atmos) pills.appendChild(el('span', { class: 'pill good' }, 'Atmos'));
   card.appendChild(pills);
 
@@ -623,7 +632,7 @@ function renderCaptureSummary(summary) {
 
   // Grid
   const g = el('div', { class: 'grid' });
-  if (p.decoded_fourcc) g.appendChild(kv('Decoded FourCC', p.decoded_fourcc, p.decoded_fourcc.startsWith('dv') ? 'good' : 'bad'));
+  if (p.decoded_fourcc) g.appendChild(kv('Decoded FourCC', p.decoded_fourcc, tvDecodedFourccClass(p.decoded_fourcc)));
   if (p.decoder) g.appendChild(kv('Decoder', p.decoder));
   if (p.decoded_resolution) g.appendChild(kv('Resolution', p.decoded_resolution));
   if (p.peak_mbps) g.appendChild(kv('HLS peak', `${p.peak_mbps} Mbps`));
@@ -636,6 +645,8 @@ function renderCaptureSummary(summary) {
     g.appendChild(kv('Sample rate', p.audio.sample_rate ? `${p.audio.sample_rate} Hz` : null));
     g.appendChild(kv('Spatialization', p.audio.spatialization));
     g.appendChild(kv('Atmos eligible', p.audio.spatialization_eligible));
+    if (p.audio.decodable != null) g.appendChild(kv('Decodable', p.audio.decodable ? 'yes' : 'no', p.audio.decodable ? 'good' : 'bad'));
+    if (p.audio.diagnosis) g.appendChild(kv('Audio diagnosis', p.audio.diagnosis, 'warn'));
   }
   if (p.file_player) {
     g.appendChild(kv('File codec', p.file_player.codec));
