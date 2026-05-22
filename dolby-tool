@@ -35,15 +35,8 @@ command -v ffprobe >/dev/null 2>&1 || {
 }
 
 # -- open browser after a short delay ---------------------------------------
-# Prefer Chrome/Brave — Safari HTTPS-Only mode blocks http://localhost
 ( sleep 1
-  if [ -d "/Applications/Google Chrome.app" ]; then
-    open -a "Google Chrome" "http://localhost:$PORT"
-  elif [ -d "/Applications/Brave Browser.app" ]; then
-    open -a "Brave Browser" "http://localhost:$PORT"
-  else
-    open "http://localhost:$PORT"
-  fi
+  open -a "Safari" "http://localhost:$PORT"
 ) &
 
 exec uv run dolby-tool "$@"
