@@ -14,11 +14,35 @@ def test_parse_line_figalternate():
     assert out["height"] == 1606
 
 
+def test_parse_line_figalternate_with_audio_group():
+    line = (
+        "2026-05-22 17:34:59.058 Df TV[767:1dc50c] "
+        "Variant [<FigAlternate(441):[0x8aa607200] [Peak/Avg 8170165/5064990] "
+        "[1918x802] [AudioGroup audio-atmos_vod-ap-aoc.tv.apple.com] "
+        "[SubtitleGroup subtitles_vod-ap-aoc.tv.apple.com] [dvh1.05.03,ec-3] "
+        "[VideoRange PQ] [HDCP Type1] [FrameRate 23.976] [Pathway ap]>]"
+    )
+    out = _parse_line(line)
+    assert out is not None
+    assert out["kind"] == "hls_variant"
+    assert out["id"] == 441
+    assert out["peak_bps"] == 8170165
+    assert out["avg_bps"] == 5064990
+    assert out["width"] == 1918
+    assert out["height"] == 802
+    assert out["codecs"] == "dvh1.05.03,ec-3"
+    assert out["video_range"] == "PQ"
+    assert out["hdcp"] == "Type1"
+    assert out["fps"] == 23.976
+
+
 def test_parse_line_codec_type():
     out = _parse_line('CodecType: dvh1 (HW decoder), DecodedPixelBuffer: &xv0, 3840 x 1600')
     assert out is not None
     assert out["kind"] == "codec_type"
     assert out["fourcc"] == "dvh1"
+    assert out["width"] == 3840
+    assert out["height"] == 1600
 
 
 def test_qdh1_cloud_capture_is_recognized_but_not_confirmed_dv():
@@ -49,7 +73,7 @@ def test_qdh1_cloud_capture_is_recognized_but_not_confirmed_dv():
     assert playback["audio"]["channels"] == 16
     assert playback["audio"]["decodable"] is True
     assert playback["audio"]["is_atmos"] is False
-    assert "unknown Dolby-like" in playback["audio"]["diagnosis"]
+    assert "Apple/CoreMedia Dolby-like" in playback["audio"]["diagnosis"]
     assert playback["best_audio"]["format"] == "qc+3"
     assert playback["observed_audio"] == [{**playback["audio"], "count": 1}]
 
@@ -131,6 +155,179 @@ def test_audio_status_text_is_normalized_from_codec_labels():
         True,
         None,
     ]
+
+
+def test_audio_format_keeps_spatialization_fields_without_inventing_atmos():
+    events = [
+        _parse_line(
+            "[AudioFormat ec+3] [AudioChannels 16] [SampleRate 48000] "
+            "[Spatialization Eligible yes] [Spatialization yes]"
+        ),
+        _parse_line(
+            "[AudioFormat qc+3] [AudioChannels 16] [SampleRate 48000] "
+            "[Spatialization Eligible yes] [Spatialization no]"
+        ),
+    ]
+    assert all(event is not None for event in events)
+
+    capture = LogCapture()
+    capture.events = [event for event in events if event is not None]
+    playback = capture.summarize()["playback"]
+
+    assert playback["observed_audio"][0]["format"] == "ec+3"
+    assert playback["observed_audio"][0]["spatialization_eligible"] == "yes"
+    assert playback["observed_audio"][0]["spatialization"] == "yes"
+    assert playback["observed_audio"][0]["sample_rate"] == 48000
+    assert playback["observed_audio"][0]["is_atmos"] is True
+    assert playback["observed_audio"][1]["format"] == "qc+3"
+    assert playback["observed_audio"][1]["spatialization_eligible"] == "yes"
+    assert playback["observed_audio"][1]["spatialization"] == "no"
+    assert playback["observed_audio"][1]["is_atmos"] is False
+
+
+def test_audio_format_keeps_non_adjacent_spatialization_fields():
+    events = [
+        _parse_line(
+            "2026-05-22 17:34:57.401 Df TV[767:1dc770] "
+            "fpfs_ReportAudioPlaybackThroughFigLog: [AudioFormat qc+3 is  decodable] "
+            "[AudioChannels 16] [Spatialization Eligible yes] "
+            "[Client permits multi: yes, stereo: no] [Spatialization yes] "
+            "[StereoSpatialization no] [Rendition Multichannel] [SampleRate 48000]"
+        ),
+        _parse_line(
+            "2026-05-22 17:36:06.933 Df TV[12389:1dd6b6] "
+            "itemfig_ReportAudioPlaybackThroughFigLog: [AudioFormat ec+3] "
+            "[AudioChannels 16] [Spatialization Eligible yes] "
+            "[Client permits multi: yes, stereo: no] [Spatialization yes] "
+            "[StereoSpatialization no] [item requires immersive rendering no]"
+        ),
+    ]
+    assert all(event is not None for event in events)
+
+    assert events[0]["format"] == "qc+3"
+    assert events[0]["channels"] == 16
+    assert events[0]["decodable"] is True
+    assert events[0]["spatialization_eligible"] == "yes"
+    assert events[0]["spatialization"] == "yes"
+    assert events[0]["sample_rate"] == 48000
+    assert events[1]["format"] == "ec+3"
+    assert events[1]["channels"] == 16
+    assert events[1]["spatialization_eligible"] == "yes"
+    assert events[1]["spatialization"] == "yes"
+
+
+def test_best_audio_prefers_qc3_over_aacp_stereo_fallback():
+    lines = [
+        "AUDIO_FORMAT aacp is decodable ch=2",
+        "AUDIO_FORMAT qc+3 is decodable ch=16",
+        "AUDIO_FORMAT aacp is decodable ch=2",
+    ]
+    events = [_parse_line(line) for line in lines]
+    assert all(event is not None for event in events)
+
+    capture = LogCapture()
+    capture.events = [event for event in events if event is not None]
+    playback = capture.summarize()["playback"]
+
+    assert playback["audio"]["format"] == "aacp"
+    assert playback["audio"]["channels"] == 2
+    assert playback["best_audio"]["format"] == "qc+3"
+    assert playback["best_audio"]["channels"] == 16
+    assert [audio["format"] for audio in playback["observed_audio"]] == ["aacp", "qc+3"]
+    assert [audio["count"] for audio in playback["observed_audio"]] == [2, 1]
+
+
+def test_renderer_hints_parse_local_spatial_lines():
+    lines = [
+        (
+            "2026-05-22 17:49:32.743 Df TV[12389:1dd6aa] [com.apple.TV:ampplay] "
+            "play> cm>> mediaFormatinfo '<private>' , audioCapabilities: 0x0 -> 0x1, "
+            "0x0 -> 0x1, asbdFormatID = ec+3, Dolby Atmos, asbdNumChannels = 16, "
+            "asbdSampleRate = 48.0 kHz, is not rendering spatial audio"
+        ),
+        (
+            "2026-05-22 17:49:32.842 Df TV[12389:1e1cb7] [com.apple.coreaudio:SpatialMgr] "
+            "SpatializationManager.cpp:1735  Logging power event: pid = 12389, name = TV, "
+            "spatialization = 1, stereoUpmix = 0, headTracking = 0"
+        ),
+        "\t\tprefersHeadTrackedSpatialization = 0",
+        "\tRoute = built-in speakers",
+        (
+            "2026-05-22 17:49:32.428 I  TV[12389:1e1cfa] [com.apple.coreaudio:ac] "
+            "ACDDPAtmosDecoder.cpp:384   (0x77cbdc040) mIsAtmos = 1, "
+            "mIsTVOS = 0, mIsOARMode = 1"
+        ),
+        (
+            "2026-05-22 17:49:32.428 I  TV[12389:1e1cfa] [com.apple.coreaudio:ac] "
+            "ACDDPAtmosDecoder.cpp:383   (0x77cbdc040) subType = 'ec+3', "
+            "inputFormat = 0x16c7f08a0, outputFormat = 0xb0696e2f0"
+        ),
+        (
+            "2026-05-22 17:49:32.833 Df TV[12389:1e1cb7] [com.apple.coreaudio:aqme] "
+            "MEMixerChannel.cpp:3300  mFormatID='ec+3', mNumChannels=16, "
+            "mBestAvailableContentType=3, mContentspatializable=1, "
+            "mSpatializationStatus=2, err=0"
+        ),
+    ]
+    events = [_parse_line(line) for line in lines]
+    assert all(event is not None for event in events)
+
+    capture = LogCapture()
+    capture.events = [event for event in events if event is not None]
+    renderer = capture.summarize()["playback"]["renderer_evidence"]
+
+    assert renderer["routes"] == ["built-in speakers"]
+    assert renderer["media_formatinfo"] == [
+        {
+            "format": "ec+3",
+            "label": "Dolby Atmos",
+            "channels": 16,
+            "sample_rate": 48000.0,
+            "rendering_spatial_audio": False,
+        }
+    ]
+    assert renderer["spatial_power"] == [
+        {"spatialization": True, "stereo_upmix": False, "head_tracking": False}
+    ]
+    assert renderer["prefers_head_tracked_spatialization"] == [False]
+    assert renderer["atmos_decoder_states"] == [
+        {"decoder_is_atmos": True, "decoder_oar_mode": True}
+    ]
+    assert renderer["decoder_subtypes"] == ["ec+3"]
+    assert renderer["mixer_spatial_status"] == [
+        {
+            "format": "ec+3",
+            "channels": 16,
+            "content_spatializable": True,
+            "spatialization_status": 2,
+        }
+    ]
+
+
+def test_renderer_hints_parse_hls_spatial_lines():
+    lines = [
+        (
+            "2026-05-22 17:51:18.292 Df TV[12389:1dd6aa] [com.apple.TV:ampplay] "
+            "play> cm>> mediaFormatinfo '<private>' , audioCapabilities: 0x8 -> 0x1, "
+            "0x8 -> 0x1, asbdFormatID = qc+3, Dolby Atmos, asbdNumChannels = 16, "
+            "asbdSampleRate = 48.0 kHz, is rendering spatial audio"
+        ),
+        (
+            "2026-05-22 17:51:18.290 Df TV[12389:1e1f62] [com.apple.TV:cmplayer] "
+            "play> avcff> noti> 'AVCFPlayerItemSpatialAudioRenderingDidChangeNotification' "
+            "ppi=0x779715200 '<private>'"
+        ),
+    ]
+    events = [_parse_line(line) for line in lines]
+    assert all(event is not None for event in events)
+
+    capture = LogCapture()
+    capture.events = [event for event in events if event is not None]
+    renderer = capture.summarize()["playback"]["renderer_evidence"]
+
+    assert renderer["media_formatinfo"][0]["format"] == "qc+3"
+    assert renderer["media_formatinfo"][0]["rendering_spatial_audio"] is True
+    assert renderer["spatial_rendering_changed_count"] == 1
 
 
 def test_compare_uses_custom_weights(monkeypatch):

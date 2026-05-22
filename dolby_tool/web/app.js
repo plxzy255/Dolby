@@ -62,8 +62,16 @@ function tvDecodedFourccClass(fourcc) {
 
 function audioLabel(audio) {
   if (!audio) return '—';
+  const format = (audio.format || '').toLowerCase();
+  const displayFormat = format === 'qc+3'
+    ? 'qc+3 (Apple Dolby-like)'
+    : ['ec+3', 'ec-3', 'ec3'].includes(format)
+      ? `${audio.format} (E-AC-3)`
+      : ['qaac', 'aacp', 'aac'].includes(format) && (audio.channels || 0) <= 2
+        ? `${audio.format} (AAC fallback)`
+        : audio.format;
   const parts = [
-    audio.format,
+    displayFormat,
     audio.channels ? `ch=${audio.channels}` : null,
     audio.sample_rate ? `${audio.sample_rate} Hz` : null,
     audio.spatialization ? `spat=${audio.spatialization}` : null,
@@ -75,10 +83,55 @@ function audioPillClass(audio) {
   const format = (audio?.format || '').toLowerCase();
   const channels = audio?.channels || 0;
   if (['ec+3', 'ec-3', 'ec3'].includes(format) && channels >= 16) return 'good';
-  if (format === 'qc+3' && channels >= 16) return 'warn';
+  if (format === 'qc+3' && channels >= 16) return 'good';
   if (channels > 2) return 'good';
-  if (['qaac', 'aac'].includes(format) && channels <= 2) return 'neutral';
+  if (['qaac', 'aacp', 'aac'].includes(format) && channels <= 2) return 'neutral';
   return 'neutral';
+}
+
+function boolText(v) {
+  if (v === true) return 'yes';
+  if (v === false) return 'no';
+  return null;
+}
+
+function rendererMediaLabel(item) {
+  if (!item) return '—';
+  const parts = [
+    item.format,
+    item.label,
+    item.channels ? `ch=${item.channels}` : null,
+    item.sample_rate ? `${item.sample_rate} Hz` : null,
+    item.rendering_spatial_audio == null ? null : `rendering=${boolText(item.rendering_spatial_audio)}`,
+  ].filter(Boolean);
+  return parts.join(' ');
+}
+
+function rendererPowerLabel(item) {
+  if (!item) return '—';
+  return [
+    `spatialization=${boolText(item.spatialization)}`,
+    `stereo upmix=${boolText(item.stereo_upmix)}`,
+    `head tracking=${boolText(item.head_tracking)}`,
+  ].filter(Boolean).join(', ');
+}
+
+function rendererMixerLabel(item) {
+  if (!item) return '—';
+  return [
+    item.format,
+    item.channels ? `ch=${item.channels}` : null,
+    item.content_spatializable == null ? null : `spatializable=${boolText(item.content_spatializable)}`,
+    item.spatialization_status != null ? `status=${item.spatialization_status}` : null,
+  ].filter(Boolean).join(' ');
+}
+
+function rendererAtmosLabel(item) {
+  if (!item) return '—';
+  return [
+    item.decoder_is_atmos == null ? null : `Atmos=${boolText(item.decoder_is_atmos)}`,
+    item.decoder_oar_mode == null ? null : `OAR=${boolText(item.decoder_oar_mode)}`,
+  ].filter(Boolean).join(', ');
 }
 
 // Last directory successfully resolved — passed as hint to /api/find so the
@@ -648,6 +701,14 @@ function formatEventSummary(ev) {
         .filter(Boolean).join(' ');
     case 'luma_chroma':
       return `luma=${ev.luma_depth} chroma=${ev.chroma_format}`;
+    case 'renderer_hint':
+      if (ev.hint === 'media_formatinfo') return rendererMediaLabel(ev);
+      if (ev.hint === 'spatial_power') return rendererPowerLabel(ev);
+      if (ev.hint === 'route') return ev.route;
+      if (ev.hint === 'atmos_decoder_state') return rendererAtmosLabel(ev);
+      if (ev.hint === 'atmos_decoder_subtype') return `decoder subtype=${ev.decoder_subtype}`;
+      if (ev.hint === 'mixer_spatial_status') return rendererMixerLabel(ev);
+      return ev.hint || ev.raw || '';
     default:
       return ev.raw || '';
   }
@@ -701,6 +762,9 @@ function renderCaptureSummary(summary) {
   }
   if (p.best_audio) {
     g.appendChild(kv('Best observed audio', audioLabel(p.best_audio), audioPillClass(p.best_audio)));
+    if (p.audio && audioLabel(p.best_audio) !== audioLabel(p.audio)) {
+      g.appendChild(kv('Audio event note', 'Current audio is the latest event; best observed audio is the strongest path seen during capture.'));
+    }
   }
   if (p.file_player) {
     g.appendChild(kv('File codec', p.file_player.codec));
@@ -718,6 +782,40 @@ function renderCaptureSummary(summary) {
       ));
     });
     card.appendChild(list);
+  }
+
+  if (p.renderer_evidence) {
+    card.appendChild(el('h3', {}, 'Spatial renderer evidence'));
+    const r = p.renderer_evidence;
+    const rg = el('div', { class: 'grid' });
+    if (r.routes?.length) rg.appendChild(kv('Output route', r.routes.join(', ')));
+    if (r.media_formatinfo?.length) {
+      r.media_formatinfo.forEach((item, index) => {
+        rg.appendChild(kv(index ? 'App spatial flag' : 'App spatial flag', rendererMediaLabel(item), item.rendering_spatial_audio ? 'good' : 'neutral'));
+      });
+    }
+    if (r.spatial_power?.length) {
+      r.spatial_power.forEach((item) => {
+        rg.appendChild(kv('Spatial power state', rendererPowerLabel(item), item.spatialization ? 'good' : 'neutral'));
+      });
+    }
+    if (r.prefers_head_tracked_spatialization?.length) {
+      rg.appendChild(kv('Prefers head tracking', r.prefers_head_tracked_spatialization.map(boolText).join(', ')));
+    }
+    if (r.atmos_decoder_states?.length) {
+      r.atmos_decoder_states.forEach((item) => {
+        rg.appendChild(kv('Atmos decoder', rendererAtmosLabel(item), item.decoder_is_atmos ? 'good' : 'neutral'));
+      });
+    }
+    if (r.decoder_subtypes?.length) rg.appendChild(kv('Decoder subtype', r.decoder_subtypes.join(', ')));
+    if (r.mixer_spatial_status?.length) {
+      r.mixer_spatial_status.forEach((item) => {
+        rg.appendChild(kv('Mixer spatial status', rendererMixerLabel(item), item.content_spatializable ? 'good' : 'neutral'));
+      });
+    }
+    if (r.spatial_rendering_changed_count) rg.appendChild(kv('Spatial rendering changes', r.spatial_rendering_changed_count));
+    if (r.observed_hints?.length) rg.appendChild(kv('Renderer hint types', r.observed_hints.join(', ')));
+    card.appendChild(rg);
   }
 
   // Raw event log

@@ -37,16 +37,17 @@ PREDICATE = (
 
 
 # FigAlternate(504) [Peak/Avg 30570719/24765202] [3840x1606] [dvh1.05.06,ec-3]
+# <FigAlternate(504):[0x...] [Peak/Avg 30570719/24765202] [3840x1606] [AudioGroup ...] [dvh1.05.06,ec-3]
 # [VideoRange PQ] [HDCP Type1] [FrameRate 23.976]
 RE_FIG_ALT = re.compile(
     r"FigAlternate\((?P<id>\d+)\)"
-    r"(?:\s*\[Peak/Avg\s+(?P<peak>\d+)/(?P<avg>\d+)\])?"
-    r"(?:\s*\[(?P<width>\d+)x(?P<height>\d+)\])?"
-    r"(?:\s*\[(?P<codecs>[^\]]+)\])?"
-    r"(?:\s*\[VideoRange\s+(?P<range>\w+)\])?"
-    r"(?:\s*\[HDCP\s+(?P<hdcp>[^\]]+)\])?"
-    r"(?:\s*\[FrameRate\s+(?P<fps>[\d.]+)\])?"
 )
+RE_FIG_ALT_PEAK = re.compile(r"\[Peak/Avg\s+(?P<peak>\d+)/(?P<avg>\d+)\]")
+RE_FIG_ALT_RES = re.compile(r"\[(?P<width>\d+)x(?P<height>\d+)\]")
+RE_FIG_ALT_CODECS = re.compile(r"\[(?P<codecs>(?:avc1|hvc1|dvh1|dvhe|ac-3|ec-3|mp4a)[^\]]*)\]")
+RE_FIG_ALT_RANGE = re.compile(r"\[VideoRange\s+(?P<range>\w+)\]")
+RE_FIG_ALT_HDCP = re.compile(r"\[HDCP\s+(?P<hdcp>[^\]]+)\]")
+RE_FIG_ALT_FPS = re.compile(r"\[FrameRate\s+(?P<fps>[\d.]+)\]")
 
 # Normalized/compact capture output may only preserve the variant resolution.
 # HLS_VARIANT nullxnull
@@ -62,6 +63,7 @@ RE_CODEC_TYPE = re.compile(
     r"(?:\s*\((?P<decoder>[^)]+)\))?"
     r"(?:[^,]*?,\s*(?P<width>\d+)\s*x\s*(?P<height>\d+))?"
 )
+RE_RESOLUTION = re.compile(r"(?P<width>\d+)\s*x\s*(?P<height>\d+)")
 
 # codecType: HEVC, encryptionScheme N, W x H
 # FILE_PLAYER HEVC enc=4 3840x1606
@@ -103,25 +105,81 @@ RE_AUDIO_STATUS = re.compile(
     r"(?:\s+ch=(?P<channels>\d+))?$",
     re.IGNORECASE,
 )
+RE_BRACKET_FIELD = re.compile(r"\[(?P<key>[A-Za-z ]+)\s+(?P<value>[^\]]+)\]")
+
+# Renderer / route evidence. These are intentionally narrow: they capture
+# high-signal lines seen from TV.app/CoreAudio without turning the full debug
+# stream into structured noise.
+RE_MEDIA_FORMATINFO = re.compile(
+    r"mediaFormatinfo .*?"
+    r"asbdFormatID = (?P<format>[^,]+),\s*"
+    r"(?P<label>.*?),\s*"
+    r"asbdNumChannels = (?P<channels>\d+),\s*"
+    r"asbdSampleRate = (?P<sample_rate>[\d.]+)\s*kHz,\s*"
+    r"is (?P<not_rendering>not )?rendering spatial audio",
+    re.IGNORECASE,
+)
+RE_SPATIAL_POWER = re.compile(
+    r"Logging power event: .*?"
+    r"spatialization = (?P<spatialization>[01]),\s*"
+    r"stereoUpmix = (?P<stereo_upmix>[01]),\s*"
+    r"headTracking = (?P<head_tracking>[01])",
+    re.IGNORECASE,
+)
+RE_HEAD_TRACKING_PREF = re.compile(
+    r"prefersHeadTrackedSpatialization = (?P<head_tracking>[01])",
+    re.IGNORECASE,
+)
+RE_ROUTE = re.compile(r"Route = (?P<route>.+)", re.IGNORECASE)
+RE_ATMOS_DECODER_STATE = re.compile(
+    r"ACDDPAtmosDecoder\.cpp:\d+.*?"
+    r"mIsAtmos = (?P<is_atmos>[01]),\s*"
+    r"mIsTVOS = (?P<is_tvos>[01]),\s*"
+    r"mIsOARMode = (?P<oar_mode>[01])",
+    re.IGNORECASE,
+)
+RE_ATMOS_DECODER_SUBTYPE = re.compile(
+    r"ACDDPAtmosDecoder\.cpp:\d+.*?subType = '(?P<subtype>[^']+)'",
+    re.IGNORECASE,
+)
+RE_MIXER_SPATIAL_STATUS = re.compile(
+    r"MEMixerChannel\.cpp:\d+\s+"
+    r"mFormatID='(?P<format>[^']+)',\s*"
+    r"mNumChannels=(?P<channels>\d+),\s*"
+    r"mBestAvailableContentType=(?P<content_type>-?\d+),\s*"
+    r"mContentspatializable=(?P<content_spatializable>[01]),\s*"
+    r"mSpatializationStatus=(?P<spatialization_status>-?\d+),\s*"
+    r"err=(?P<err>-?\d+)",
+    re.IGNORECASE,
+)
+RE_SPATIAL_RENDERING_NOTIFICATION = re.compile(
+    r"AVCFPlayerItemSpatialAudioRenderingDidChangeNotification",
+    re.IGNORECASE,
+)
 
 NOISE_AUDIO_FORMATS = {"table:"}
 
 
 def _parse_line(line: str) -> dict[str, Any] | None:
     if m := RE_FIG_ALT.search(line):
-        d = m.groupdict()
+        peak = RE_FIG_ALT_PEAK.search(line)
+        resolution = RE_FIG_ALT_RES.search(line)
+        codecs = RE_FIG_ALT_CODECS.search(line)
+        video_range = RE_FIG_ALT_RANGE.search(line)
+        hdcp = RE_FIG_ALT_HDCP.search(line)
+        fps = RE_FIG_ALT_FPS.search(line)
         return {
             "kind": "hls_variant",
             "raw": line.rstrip(),
-            "id": _int(d["id"]),
-            "peak_bps": _int(d["peak"]),
-            "avg_bps": _int(d["avg"]),
-            "width": _int(d["width"]),
-            "height": _int(d["height"]),
-            "codecs": d["codecs"],
-            "video_range": d["range"],
-            "hdcp": d["hdcp"],
-            "fps": _float(d["fps"]),
+            "id": _int(m.group("id")),
+            "peak_bps": _int(peak.group("peak") if peak else None),
+            "avg_bps": _int(peak.group("avg") if peak else None),
+            "width": _int(resolution.group("width") if resolution else None),
+            "height": _int(resolution.group("height") if resolution else None),
+            "codecs": codecs.group("codecs") if codecs else None,
+            "video_range": video_range.group("range") if video_range else None,
+            "hdcp": hdcp.group("hdcp") if hdcp else None,
+            "fps": _float(fps.group("fps") if fps else None),
         }
     if m := RE_HLS_VARIANT_SUMMARY.search(line):
         d = m.groupdict()
@@ -140,13 +198,14 @@ def _parse_line(line: str) -> dict[str, Any] | None:
         }
     if m := RE_CODEC_TYPE.search(line):
         d = m.groupdict()
+        resolution = RE_RESOLUTION.search(line)
         return {
             "kind": "codec_type",
             "raw": line.rstrip(),
             "fourcc": d["fourcc"],
             "decoder": d["decoder"],
-            "width": _int(d["width"]),
-            "height": _int(d["height"]),
+            "width": _int(d["width"] or (resolution.group("width") if resolution else None)),
+            "height": _int(d["height"] or (resolution.group("height") if resolution else None)),
         }
     if m := RE_AUDIO_FORMAT.search(line):
         d = m.groupdict()
@@ -154,6 +213,8 @@ def _parse_line(line: str) -> dict[str, Any] | None:
         channels = d["bracket_channels"] or d["summary_channels"]
         decodable = d["summary_decodable"] == "decodable" if d["summary_decodable"] else None
         fmt, channels, decodable = _normalize_audio_fields(fmt, channels, decodable)
+        bracket_fields = _audio_bracket_fields(line)
+        channels = channels or bracket_fields.get("audiochannels")
         if not fmt:
             return None
         return {
@@ -161,11 +222,13 @@ def _parse_line(line: str) -> dict[str, Any] | None:
             "raw": line.rstrip(),
             "format": fmt,
             "channels": _int(channels),
-            "sample_rate": _int(d["bracket_rate"]),
-            "spatialization_eligible": d["bracket_spat_elig"],
-            "spatialization": d["bracket_spat"],
+            "sample_rate": _int(d["bracket_rate"] or bracket_fields.get("samplerate")),
+            "spatialization_eligible": d["bracket_spat_elig"] or bracket_fields.get("spatializationeligible"),
+            "spatialization": d["bracket_spat"] or bracket_fields.get("spatialization"),
             "decodable": decodable,
         }
+    if renderer_event := _parse_renderer_line(line):
+        return renderer_event
     if m := RE_FILE_PLAYER.search(line):
         d = m.groupdict()
         if d["codec"]:
@@ -188,6 +251,82 @@ def _parse_line(line: str) -> dict[str, Any] | None:
     return None
 
 
+def _parse_renderer_line(line: str) -> dict[str, Any] | None:
+    if m := RE_MEDIA_FORMATINFO.search(line):
+        d = m.groupdict()
+        return {
+            "kind": "renderer_hint",
+            "hint": "media_formatinfo",
+            "raw": line.rstrip(),
+            "format": d["format"].strip(),
+            "label": d["label"].strip(),
+            "channels": _int(d["channels"]),
+            "sample_rate": _float(d["sample_rate"]) * 1000 if _float(d["sample_rate"]) else None,
+            "rendering_spatial_audio": d["not_rendering"] is None,
+        }
+    if m := RE_SPATIAL_POWER.search(line):
+        d = m.groupdict()
+        return {
+            "kind": "renderer_hint",
+            "hint": "spatial_power",
+            "raw": line.rstrip(),
+            "spatialization": _bool01(d["spatialization"]),
+            "stereo_upmix": _bool01(d["stereo_upmix"]),
+            "head_tracking": _bool01(d["head_tracking"]),
+        }
+    if m := RE_HEAD_TRACKING_PREF.search(line):
+        return {
+            "kind": "renderer_hint",
+            "hint": "head_tracking_preference",
+            "raw": line.rstrip(),
+            "prefers_head_tracked_spatialization": _bool01(m.group("head_tracking")),
+        }
+    if m := RE_ROUTE.search(line):
+        return {
+            "kind": "renderer_hint",
+            "hint": "route",
+            "raw": line.rstrip(),
+            "route": m.group("route").strip(),
+        }
+    if m := RE_ATMOS_DECODER_STATE.search(line):
+        d = m.groupdict()
+        return {
+            "kind": "renderer_hint",
+            "hint": "atmos_decoder_state",
+            "raw": line.rstrip(),
+            "decoder_is_atmos": _bool01(d["is_atmos"]),
+            "decoder_is_tvos": _bool01(d["is_tvos"]),
+            "decoder_oar_mode": _bool01(d["oar_mode"]),
+        }
+    if m := RE_ATMOS_DECODER_SUBTYPE.search(line):
+        return {
+            "kind": "renderer_hint",
+            "hint": "atmos_decoder_subtype",
+            "raw": line.rstrip(),
+            "decoder_subtype": m.group("subtype").strip(),
+        }
+    if m := RE_MIXER_SPATIAL_STATUS.search(line):
+        d = m.groupdict()
+        return {
+            "kind": "renderer_hint",
+            "hint": "mixer_spatial_status",
+            "raw": line.rstrip(),
+            "format": d["format"].strip(),
+            "channels": _int(d["channels"]),
+            "best_available_content_type": _int(d["content_type"]),
+            "content_spatializable": _bool01(d["content_spatializable"]),
+            "spatialization_status": _int(d["spatialization_status"]),
+            "err": _int(d["err"]),
+        }
+    if RE_SPATIAL_RENDERING_NOTIFICATION.search(line):
+        return {
+            "kind": "renderer_hint",
+            "hint": "spatial_rendering_changed",
+            "raw": line.rstrip(),
+        }
+    return None
+
+
 def _int(v: Any) -> int | None:
     try:
         return int(v) if v is not None else None
@@ -200,6 +339,22 @@ def _float(v: Any) -> float | None:
         return float(v) if v is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def _bool01(v: Any) -> bool | None:
+    if v == "1" or v == 1:
+        return True
+    if v == "0" or v == 0:
+        return False
+    return None
+
+
+def _audio_bracket_fields(line: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for match in RE_BRACKET_FIELD.finditer(line):
+        key = match.group("key").replace(" ", "").lower()
+        fields[key] = match.group("value").strip()
+    return fields
 
 
 def _normalize_audio_fields(
@@ -239,7 +394,7 @@ def _audio_summary(event: dict[str, Any]) -> dict[str, Any]:
     if audio_format == "qc+3":
         summary["diagnosis"] = (
             "Audio format 'qc+3' was reported as decodable by TV.app. "
-            "Preserving it as an unknown Dolby-like Apple/QuickTime path, not confirmed Atmos."
+            "Preserving it as an Apple/CoreMedia Dolby-like runtime path, not confirmed Atmos."
         )
     return summary
 
@@ -266,7 +421,7 @@ def _audio_rank(event: dict[str, Any]) -> tuple[int, int, int]:
         tier = 4
     elif audio_format in {"ac-3", "ac3"} and channels > 2:
         tier = 3
-    elif audio_format in {"qaac", "aac"} and channels <= 2:
+    elif audio_format in {"qaac", "aac", "aacp"} and channels <= 2:
         tier = 1
     else:
         tier = 2 if channels > 2 else 0
@@ -402,6 +557,7 @@ class LogCapture:
 
         file_events = [e for e in self.events if e["kind"] == "file_player"]
         last_file = file_events[-1] if file_events else None
+        renderer_events = [e for e in self.events if e["kind"] == "renderer_hint"]
 
         playback: dict[str, Any] = {
             "source": "hls" if hls_variants else ("local_file" if file_events else "unknown"),
@@ -437,6 +593,8 @@ class LogCapture:
             playback["observed_audio"] = observed_audio
         if last_file:
             playback["file_player"] = last_file
+        if renderer_events:
+            playback["renderer_evidence"] = _renderer_summary(renderer_events)
 
         # DV verdict
         decoded = (playback.get("decoded_fourcc") or "").lower()
@@ -467,6 +625,104 @@ class LogCapture:
             "events": self.events,
             "predicate": PREDICATE,
         }
+
+
+def _renderer_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
+    summary: dict[str, Any] = {"observed_hints": sorted({e["hint"] for e in events})}
+
+    routes = [e.get("route") for e in events if e["hint"] == "route" and e.get("route")]
+    if routes:
+        summary["routes"] = _unique_keep_order(routes)
+
+    media_events = [e for e in events if e["hint"] == "media_formatinfo"]
+    if media_events:
+        summary["media_formatinfo"] = [
+            {
+                "format": e.get("format"),
+                "label": e.get("label"),
+                "channels": e.get("channels"),
+                "sample_rate": e.get("sample_rate"),
+                "rendering_spatial_audio": e.get("rendering_spatial_audio"),
+            }
+            for e in _unique_events(media_events, ("format", "channels", "rendering_spatial_audio"))
+        ]
+
+    power_events = [e for e in events if e["hint"] == "spatial_power"]
+    if power_events:
+        summary["spatial_power"] = [
+            {
+                "spatialization": e.get("spatialization"),
+                "stereo_upmix": e.get("stereo_upmix"),
+                "head_tracking": e.get("head_tracking"),
+            }
+            for e in _unique_events(power_events, ("spatialization", "stereo_upmix", "head_tracking"))
+        ]
+
+    head_tracking = [
+        e.get("prefers_head_tracked_spatialization")
+        for e in events
+        if e["hint"] == "head_tracking_preference"
+    ]
+    if head_tracking:
+        summary["prefers_head_tracked_spatialization"] = _unique_keep_order(head_tracking)
+
+    decoder_states = [e for e in events if e["hint"] == "atmos_decoder_state"]
+    if decoder_states:
+        summary["atmos_decoder_states"] = [
+            {
+                "decoder_is_atmos": e.get("decoder_is_atmos"),
+                "decoder_oar_mode": e.get("decoder_oar_mode"),
+            }
+            for e in _unique_events(decoder_states, ("decoder_is_atmos", "decoder_oar_mode"))
+        ]
+
+    decoder_subtypes = [
+        e.get("decoder_subtype")
+        for e in events
+        if e["hint"] == "atmos_decoder_subtype" and e.get("decoder_subtype")
+    ]
+    if decoder_subtypes:
+        summary["decoder_subtypes"] = _unique_keep_order(decoder_subtypes)
+
+    mixer_events = [e for e in events if e["hint"] == "mixer_spatial_status"]
+    if mixer_events:
+        summary["mixer_spatial_status"] = [
+            {
+                "format": e.get("format"),
+                "channels": e.get("channels"),
+                "content_spatializable": e.get("content_spatializable"),
+                "spatialization_status": e.get("spatialization_status"),
+            }
+            for e in _unique_events(
+                mixer_events,
+                ("format", "channels", "content_spatializable", "spatialization_status"),
+            )
+        ]
+
+    summary["spatial_rendering_changed_count"] = sum(
+        1 for e in events if e["hint"] == "spatial_rendering_changed"
+    )
+    return summary
+
+
+def _unique_keep_order(values: list[Any]) -> list[Any]:
+    unique: list[Any] = []
+    for value in values:
+        if value not in unique:
+            unique.append(value)
+    return unique
+
+
+def _unique_events(events: list[dict[str, Any]], fields: tuple[str, ...]) -> list[dict[str, Any]]:
+    unique: list[dict[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
+    for event in events:
+        key = tuple(event.get(field) for field in fields)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(event)
+    return unique
 
 
 __all__ = ["LogCapture", "PREDICATE"]
