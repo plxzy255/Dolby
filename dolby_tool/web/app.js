@@ -769,14 +769,15 @@ async function _copyText(text) {
   ta.focus();
   ta.select();
   ta.setSelectionRange(0, ta.value.length);
+  let copied = false;
   try {
-    document.execCommand('copy');
+    copied = document.execCommand('copy');
   } catch {
     document.body.removeChild(ta);
     return false;
   }
   document.body.removeChild(ta);
-  return true;
+  return copied;
 }
 
 function _setCopyStatus(wrap, message, ok) {
