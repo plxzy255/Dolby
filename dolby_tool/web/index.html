@@ -17,6 +17,7 @@
 </header>
 
 <main>
+  <div id="capabilities-banner" class="banner" hidden></div>
 
   <!-- ============================================================= -->
   <!-- Inspect tab                                                    -->
@@ -48,6 +49,20 @@
       </div>
       <input type="text" id="compare-folder-path" placeholder="Or paste a folder path then click 'Add folder contents'" spellcheck="false" />
     </div>
+    
+    <div class="weights" id="compare-weights">
+      <p class="hint">Score weights (higher = more impact):</p>
+      <div class="weights-grid">
+        <label>DV present <input type="number" id="w-dv-present" value="25" min="0" step="1"></label>
+        <label>DV FourCC OK <input type="number" id="w-dv-fourcc" value="25" min="0" step="1"></label>
+        <label>HDR10+ <input type="number" id="w-hdr10plus" value="10" min="0" step="1"></label>
+        <label>Atmos <input type="number" id="w-atmos" value="15" min="0" step="1"></label>
+        <label>Video bitrate <input type="number" id="w-bitrate" value="20" min="0" step="1"></label>
+        <label>Resolution <input type="number" id="w-resolution" value="10" min="0" step="1"></label>
+        <label>Subtitles <input type="number" id="w-subtitles" value="5" min="0" step="1"></label>
+      </div>
+    </div>
+
     <ul id="compare-list" class="file-list"></ul>
     <div id="compare-result" class="result"></div>
   </section>
