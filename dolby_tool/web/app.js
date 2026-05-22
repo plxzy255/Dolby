@@ -782,13 +782,15 @@ async function _copyText(text) {
 
 function _setCopyStatus(wrap, message, ok) {
   const status = wrap.querySelector('.copy-status');
+  if (wrap.copyStatusTimer) clearTimeout(wrap.copyStatusTimer);
   status.textContent = message;
   wrap.classList.toggle('copy-ok', ok);
   wrap.classList.toggle('copy-error', !ok);
-  setTimeout(() => {
+  wrap.copyStatusTimer = setTimeout(() => {
     wrap.classList.remove('copy-ok');
     wrap.classList.remove('copy-error');
     status.textContent = '';
+    wrap.copyStatusTimer = null;
   }, 1200);
 }
 
