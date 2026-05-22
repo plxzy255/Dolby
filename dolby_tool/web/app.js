@@ -729,6 +729,8 @@ function formatEventSummary(ev) {
         ev.decodable === true ? 'is decodable' : ev.decodable === false ? 'is not decodable' : null,
         ev.channels ? `ch=${ev.channels}` : null,
         ev.spatialization ? `spat=${ev.spatialization}` : null,
+        ev.pipeline_engine ? `[${ev.pipeline_engine}]` : null,
+        ev.immersive_rendering_requested != null ? `immersive=${ev.immersive_rendering_requested}` : null,
       ].filter(Boolean).join(' ');
     case 'file_player':
       return [ev.codec, ev.encryption_scheme != null ? `enc=${ev.encryption_scheme}` : null, ev.width ? `${ev.width}x${ev.height}` : null]
@@ -742,6 +744,8 @@ function formatEventSummary(ev) {
       if (ev.hint === 'atmos_decoder_state') return rendererAtmosLabel(ev);
       if (ev.hint === 'atmos_decoder_subtype') return `decoder subtype=${ev.decoder_subtype}`;
       if (ev.hint === 'mixer_spatial_status') return rendererMixerLabel(ev);
+      if (ev.hint === 'allowed_spatialization_formats_mask') return `spatialization formats mask=${ev.mask}`;
+      if (ev.hint === 'immersive_rendering_requested') return `immersive rendering requested=${ev.immersive_rendering_requested}`;
       return ev.hint || ev.raw || '';
     default:
       return ev.raw || '';
@@ -849,6 +853,10 @@ function renderCaptureSummary(summary) {
   const pills = el('div', { class: 'row', style: 'justify-content: flex-start; margin-bottom: 12px' });
   pills.appendChild(el('span', { class: 'pill ' + (p.source === 'hls' ? 'good' : p.source === 'local_file' ? 'warn' : 'neutral') },
     p.source === 'hls' ? 'Source: HLS (Apple TV+ / streaming)' : p.source === 'local_file' ? 'Source: Local file' : 'Source: unknown'));
+  if (p.pipeline_engine) {
+    const isStream = p.pipeline_engine === 'FigStreamPlayer';
+    pills.appendChild(el('span', { class: `pill ${isStream ? 'good' : 'neutral'}` }, `Engine: ${p.pipeline_engine}`));
+  }
   if (p.dolby_vision_active === true) pills.appendChild(el('span', { class: 'pill good' }, 'Dolby Vision active'));
   else if (p.dolby_vision_active === false) pills.appendChild(el('span', { class: 'pill bad' }, 'Dolby Vision NOT active'));
   else if (p.dv_label) pills.appendChild(el('span', { class: 'pill warn' }, p.dv_label));
@@ -889,6 +897,13 @@ function renderCaptureSummary(summary) {
       g.appendChild(kv('Audio event note', 'Current audio is the latest event; best observed audio is the strongest path seen during capture.'));
     }
   }
+  if (p.pipeline_engine) {
+    g.appendChild(kv('Pipeline engine', p.pipeline_engine,
+      p.pipeline_engine === 'FigStreamPlayer' ? 'good' : 'neutral'));
+    if (p.pipeline_engines_observed?.length > 1) {
+      g.appendChild(kv('All engines observed', p.pipeline_engines_observed.join(', ')));
+    }
+  }
   if (p.file_player) {
     g.appendChild(kv('File codec', p.file_player.codec));
     g.appendChild(kv('Encryption scheme', p.file_player.encryption_scheme));
@@ -917,11 +932,17 @@ function renderCaptureSummary(summary) {
     if (verdict) {
       card.appendChild(el('div', { class: `renderer-verdict ${verdict.className}` }, verdict.text));
     }
+    if (r.verdict_note) {
+      card.appendChild(el('div', { class: 'info-note' }, r.verdict_note));
+    }
     const rg = el('div', { class: 'grid' });
     if (r.routes?.length) rg.appendChild(kv('Output route', r.routes.join(', ')));
     rg.appendChild(kv('Route capability', r.route_capability_label || 'not captured'));
     rg.appendChild(kv('App spatial rendering ever true', capturedText(r.app_spatial_rendering_ever_true), r.app_spatial_rendering_ever_true ? 'good' : 'neutral'));
     rg.appendChild(kv('App spatial rendering last state', capturedText(r.app_spatial_rendering_last_state), r.app_spatial_rendering_last_state ? 'good' : 'neutral'));
+    if (r.first_true_at_seconds != null) rg.appendChild(kv('First true at', `${r.first_true_at_seconds}s into capture`, 'good'));
+    if (r.immersive_rendering_requested != null) rg.appendChild(kv('Immersive rendering requested', capturedText(r.immersive_rendering_requested), r.immersive_rendering_requested ? 'good' : 'neutral'));
+    if (r.allowed_spatialization_formats_masks?.length) rg.appendChild(kv('Spatialization formats mask', r.allowed_spatialization_formats_masks.join(', ')));
     rg.appendChild(kv('Lower-level spatialization', activeText(r.lower_level_spatialization_active), r.lower_level_spatialization_active ? 'good' : 'neutral'));
     rg.appendChild(kv('Spatial power', activeText(r.spatial_power_active), r.spatial_power_active ? 'good' : 'neutral'));
     rg.appendChild(kv('Head tracking', activeText(r.head_tracking_active), r.head_tracking_active ? 'good' : 'neutral'));

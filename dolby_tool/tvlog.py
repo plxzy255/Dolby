@@ -74,6 +74,29 @@ RE_FILE_PLAYER = re.compile(
     re.IGNORECASE,
 )
 
+# FigFilePlayer / FigStreamPlayer pipeline engine detection.
+# These functions appear in the log line that precedes (or contains) an audio report.
+# itemfig_ReportAudioPlaybackThroughFigLog → FigFilePlayer (local files)
+# fpfs_ReportAudioPlaybackThroughFigLog   → FigStreamPlayer (HLS / Apple TV+)
+RE_PIPELINE_ENGINE = re.compile(
+    r"(?P<engine>itemfig_ReportAudioPlaybackThroughFigLog"
+    r"|fpfs_ReportAudioPlaybackThroughFigLog)",
+    re.IGNORECASE,
+)
+
+# [item requires immersive rendering yes|no]
+RE_IMMERSIVE_RENDERING = re.compile(
+    r"\[item requires immersive rendering\s+(?P<value>yes|no)\]",
+    re.IGNORECASE,
+)
+
+# AVCFPlayerItemSetAllowedAudioSpatializationFormats for playerItem ...: 0xN
+RE_SPAT_FORMATS_MASK = re.compile(
+    r"AVCFPlayerItemSetAllowedAudioSpatializationFormats"
+    r"(?:[^:]*?):\s*(?P<mask>0x[0-9a-fA-F]+|\d+)",
+    re.IGNORECASE,
+)
+
 # [AudioFormat ec+3] [AudioChannels 16] [SampleRate 48000] [Spatialization Eligible yes] [Spatialization yes]
 # AUDIO_FORMAT qc+3 is decodable ch=16
 RE_AUDIO_FORMAT = re.compile(
@@ -217,7 +240,16 @@ def _parse_line(line: str) -> dict[str, Any] | None:
         channels = channels or bracket_fields.get("audiochannels")
         if not fmt:
             return None
-        return {
+        # Detect pipeline engine from the reporting function name on the same line
+        pipeline_engine: str | None = None
+        if pm := RE_PIPELINE_ENGINE.search(line):
+            fn = pm.group("engine").lower()
+            pipeline_engine = "FigFilePlayer" if fn.startswith("itemfig") else "FigStreamPlayer"
+        # Detect immersive rendering flag from the same log block
+        immersive: str | None = None
+        if im := RE_IMMERSIVE_RENDERING.search(line):
+            immersive = im.group("value").lower()
+        event: dict[str, Any] = {
             "kind": "audio_format",
             "raw": line.rstrip(),
             "format": fmt,
@@ -227,6 +259,11 @@ def _parse_line(line: str) -> dict[str, Any] | None:
             "spatialization": d["bracket_spat"] or bracket_fields.get("spatialization"),
             "decodable": decodable,
         }
+        if pipeline_engine is not None:
+            event["pipeline_engine"] = pipeline_engine
+        if immersive is not None:
+            event["immersive_rendering_requested"] = immersive == "yes"
+        return event
     if renderer_event := _parse_renderer_line(line):
         return renderer_event
     if m := RE_FILE_PLAYER.search(line):
@@ -323,6 +360,20 @@ def _parse_renderer_line(line: str) -> dict[str, Any] | None:
             "kind": "renderer_hint",
             "hint": "spatial_rendering_changed",
             "raw": line.rstrip(),
+        }
+    if m := RE_SPAT_FORMATS_MASK.search(line):
+        return {
+            "kind": "renderer_hint",
+            "hint": "allowed_spatialization_formats_mask",
+            "raw": line.rstrip(),
+            "mask": m.group("mask"),
+        }
+    if m := RE_IMMERSIVE_RENDERING.search(line):
+        return {
+            "kind": "renderer_hint",
+            "hint": "immersive_rendering_requested",
+            "raw": line.rstrip(),
+            "immersive_rendering_requested": m.group("value").lower() == "yes",
         }
     return None
 
@@ -593,8 +644,18 @@ class LogCapture:
             playback["observed_audio"] = observed_audio
         if last_file:
             playback["file_player"] = last_file
+        # pipeline_engine from audio events (most reliable source when it appears in the same log block)
+        pipeline_engines = _unique_keep_order(
+            [e["pipeline_engine"] for e in audio_events if e.get("pipeline_engine")]
+        )
+        if pipeline_engines:
+            playback["pipeline_engine"] = pipeline_engines[-1]
+            playback["pipeline_engines_observed"] = pipeline_engines
+
         if renderer_events:
-            playback["renderer_evidence"] = _renderer_summary(renderer_events)
+            playback["renderer_evidence"] = _renderer_summary(
+                renderer_events, started_at=self._started_at
+            )
         playback["capture_quality"] = _capture_quality(
             codec_events=codec_events,
             audio_events=audio_events,
@@ -613,12 +674,20 @@ class LogCapture:
             )
         elif decoded == "qdh1":
             playback["dolby_vision_active"] = None
-            playback["dv_label"] = "Possibly DV / Apple private HDR path"
-            playback["dv_diagnosis"] = (
-                "Decoded as 'qdh1' via hardware decoder. This is not the known hvc1 fallback, "
-                "but it is also not the standard dvh1/dvhe Dolby Vision marker. Treat as an "
-                "Apple/QuickTime private HDR/DV-like path until correlated with display output."
-            )
+            if playback.get("source") == "hls":
+                playback["dv_label"] = "Apple HLS private HDR/DV path (qdh1)"
+                playback["dv_diagnosis"] = (
+                    "Decoded as 'qdh1' on the HLS path. This is Apple's private CoreMedia "
+                    "HDR/Dolby Vision identifier for streaming content — it is the expected "
+                    "fourcc for Apple TV+ HLS with DV video, not a fallback or degraded path."
+                )
+            else:
+                playback["dv_label"] = "Apple private HDR path (qdh1) — source unknown"
+                playback["dv_diagnosis"] = (
+                    "Decoded as 'qdh1' via hardware decoder. Not the hvc1 SDR fallback, "
+                    "but also not the standard dvh1/dvhe open-DV marker. Likely Apple's "
+                    "private CoreMedia HDR/DV path. Correlate with display output to confirm."
+                )
         else:
             playback["dolby_vision_active"] = None
 
@@ -632,7 +701,10 @@ class LogCapture:
         }
 
 
-def _renderer_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
+def _renderer_summary(
+    events: list[dict[str, Any]],
+    started_at: float | None = None,
+) -> dict[str, Any]:
     summary: dict[str, Any] = {"observed_hints": sorted({e["hint"] for e in events})}
 
     routes = [e.get("route") for e in events if e["hint"] == "route" and e.get("route")]
@@ -646,6 +718,15 @@ def _renderer_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
         app_states = [state for state in app_states if state is not None]
         summary["app_spatial_rendering_ever_true"] = any(app_states)
         summary["app_spatial_rendering_last_state"] = app_states[-1] if app_states else None
+        # first_true_at_seconds: offset from capture start when rendering_spatial_audio first became true
+        first_true_at: float | None = None
+        if started_at is not None:
+            for e in media_events:
+                if e.get("rendering_spatial_audio") is True and e.get("ts") is not None:
+                    first_true_at = round(e["ts"] - started_at, 2)
+                    break
+        if first_true_at is not None:
+            summary["first_true_at_seconds"] = first_true_at
         summary["media_formatinfo"] = [
             {
                 "format": e.get("format"),
@@ -722,6 +803,19 @@ def _renderer_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
             )
         ]
 
+    # Allowed spatialization formats mask (AVCFPlayerItemSetAllowedAudioSpatializationFormats)
+    mask_events = [e for e in events if e["hint"] == "allowed_spatialization_formats_mask"]
+    if mask_events:
+        masks = _unique_keep_order([e.get("mask") for e in mask_events if e.get("mask")])
+        summary["allowed_spatialization_formats_masks"] = masks
+
+    # Immersive rendering requested ([item requires immersive rendering yes|no])
+    immersive_events = [e for e in events if e["hint"] == "immersive_rendering_requested"]
+    if immersive_events:
+        summary["immersive_rendering_requested"] = any(
+            e.get("immersive_rendering_requested") is True for e in immersive_events
+        )
+
     summary["spatial_rendering_changed_count"] = sum(
         1 for e in events if e["hint"] == "spatial_rendering_changed"
     )
@@ -746,6 +840,13 @@ def _renderer_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
         and summary["lower_level_spatialization_active"]
     ):
         summary["verdict"] = "lower_level_active_app_spatial_false"
+        summary["verdict_note"] = (
+            "Atmos decode and spatial mixer are active (lower-level CoreAudio machinery "
+            "is running), but TV.app's app-level spatial-rendering flag is false. "
+            "Current evidence suggests this is a playback-engine/asbd distinction: "
+            "local files use FigFilePlayer / ec+3, which does not reach the app-level flag. "
+            "This is not a codec-quality downgrade — the Atmos/OAR pipeline is still engaged."
+        )
     elif summary["lower_level_spatialization_active"]:
         summary["verdict"] = "lower_level_spatialization_active"
     else:

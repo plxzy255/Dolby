@@ -236,6 +236,17 @@ input[type=text]:focus { outline: 1px solid var(--accent); }
   font-size: 13px;
 }
 
+.info-note {
+  background: rgba(79, 158, 255, 0.08);
+  border: 1px solid rgba(79, 158, 255, 0.3);
+  color: #a8cbf5;
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin: 12px 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
