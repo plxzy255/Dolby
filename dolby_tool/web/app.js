@@ -524,6 +524,8 @@ function renderCompare(res) {
 
 let captureWs = null;
 let captureCount = 0;
+let lastEventKey = null;
+let lastEventNode = null;
 
 function setCaptureStatus(state, label) {
   const s = $('#capture-status');
@@ -535,6 +537,8 @@ $('#capture-start').addEventListener('click', () => {
   $('#capture-events').innerHTML = '';
   $('#capture-summary').innerHTML = '';
   captureCount = 0;
+  lastEventKey = null;
+  lastEventNode = null;
   $('#capture-counter').textContent = '0 events';
 
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -576,28 +580,51 @@ function addEvent(ev) {
   captureCount++;
   $('#capture-counter').textContent = `${captureCount} event${captureCount === 1 ? '' : 's'}`;
   const summary = formatEventSummary(ev);
+  const key = `${ev.kind}:${summary}`;
+  if (lastEventNode && lastEventKey === key) {
+    const count = Number(lastEventNode.dataset.count || '1') + 1;
+    lastEventNode.dataset.count = String(count);
+    const countNode = lastEventNode.querySelector('.event-count');
+    countNode.hidden = false;
+    countNode.textContent = `${count}x`;
+    return;
+  }
   const node = el('div', { class: 'event' },
     el('span', { class: 'kind ' + ev.kind }, ev.kind),
     summary,
+    el('span', { class: 'event-count', hidden: true }, '1x'),
   );
+  node.dataset.count = '1';
   const wrap = $('#capture-events');
   // Insert at top because flex-direction: column-reverse renders bottom-up
   wrap.insertBefore(node, wrap.firstChild);
+  lastEventKey = key;
+  lastEventNode = node;
   while (wrap.children.length > 500) wrap.removeChild(wrap.lastChild);
 }
 
 function formatEventSummary(ev) {
   switch (ev.kind) {
     case 'hls_variant':
-      return `${ev.width}x${ev.height} ${ev.codecs || ''} ${ev.video_range || ''}` +
-        (ev.peak_bps ? ` peak ${(ev.peak_bps/1_000_000).toFixed(1)}Mbps` : '');
+      return [
+        `${ev.width ?? 'null'}x${ev.height ?? 'null'}`,
+        ev.codecs,
+        ev.video_range,
+        ev.peak_bps ? `peak ${(ev.peak_bps/1_000_000).toFixed(1)}Mbps` : null,
+      ].filter(Boolean).join(' ');
     case 'codec_type':
-      return `${ev.fourcc} (${ev.decoder || 'decoder'}) ${ev.width ? `${ev.width}x${ev.height}` : ''}`;
+      return [ev.fourcc, `(${ev.decoder || 'decoder'})`, ev.width ? `${ev.width}x${ev.height}` : null]
+        .filter(Boolean).join(' ');
     case 'audio_format':
-      return `${ev.format} ch=${ev.channels} ` +
-        (ev.spatialization ? `spat=${ev.spatialization}` : '');
+      return [
+        ev.format,
+        ev.decodable === true ? 'is decodable' : ev.decodable === false ? 'is not decodable' : null,
+        ev.channels ? `ch=${ev.channels}` : null,
+        ev.spatialization ? `spat=${ev.spatialization}` : null,
+      ].filter(Boolean).join(' ');
     case 'file_player':
-      return `${ev.codec} enc=${ev.encryption_scheme} ${ev.width ? `${ev.width}x${ev.height}` : ''}`;
+      return [ev.codec, ev.encryption_scheme != null ? `enc=${ev.encryption_scheme}` : null, ev.width ? `${ev.width}x${ev.height}` : null]
+        .filter(Boolean).join(' ');
     case 'luma_chroma':
       return `luma=${ev.luma_depth} chroma=${ev.chroma_format}`;
     default:
