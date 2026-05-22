@@ -728,12 +728,9 @@ function _copyText(text) {
   }
 }
 
-function _copySummaryUI(summary) {
-  _copyText(JSON.stringify({
-    event_count: summary.event_count,
-    duration_s: summary.duration_s,
-    playback: summary.playback,
-  }, null, 2));
+function _flashCopied(wrap) {
+  wrap.classList.add('copied');
+  setTimeout(() => wrap.classList.remove('copied'), 1200);
 }
 
 function renderCaptureSummary(summary) {
@@ -742,21 +739,38 @@ function renderCaptureSummary(summary) {
   // header row: title + copy icon
   const hdr = el('div', { class: 'capt-summary-hdr' });
   hdr.appendChild(el('h2', {}, 'Playback summary'));
-  hdr.appendChild(
-    el('div', { class: 'copy-wrap' },
-      el('button', {
-        class: 'copy-icon-btn',
-        title: 'Copy summary',
-        html: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 3H14.6C16.84 3 17.96 3 18.816 3.436C19.569 3.819 20.181 4.431 20.564 5.184C21 6.04 21 7.16 21 9.4V16.5M6.2 21H14.3C15.42 21 15.98 21 16.408 20.782C16.784 20.59 17.09 20.284 17.282 19.908C17.5 19.48 17.5 18.92 17.5 17.8V9.7C17.5 8.58 17.5 8.02 17.282 7.592C17.09 7.216 16.784 6.91 16.408 6.718C15.98 6.5 15.42 6.5 14.3 6.5H6.2C5.08 6.5 4.52 6.5 4.092 6.718C3.716 6.91 3.41 7.216 3.218 7.592C3 8.02 3 8.58 3 9.7V17.8C3 18.92 3 19.48 3.218 19.908C3.41 20.284 3.716 20.59 4.092 20.782C4.52 21 5.08 21 6.2 21Z"/></svg>',
-      }),
-      el('div', { class: 'copy-menu' },
-        el('button', {
-          class: 'copy-menu-item',
-          onclick: () => _copySummaryUI(summary),
-        }, 'Copy summary JSON'),
-      ),
-    ),
-  );
+
+  const copyWrap = el('div', { class: 'copy-wrap' });
+  const copyToast = el('span', { class: 'copy-toast' }, 'Copied');
+
+  // icon click → copy UI-only summary
+  copyWrap.appendChild(el('button', {
+    class: 'copy-icon-btn',
+    title: 'Copy summary',
+    onclick: () => {
+      _copyText(JSON.stringify({
+        event_count: summary.event_count,
+        duration_s: summary.duration_s,
+        playback: summary.playback,
+      }, null, 2));
+      _flashCopied(copyWrap);
+    },
+    html: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 3H14.6C16.84 3 17.96 3 18.816 3.436C19.569 3.819 20.181 4.431 20.564 5.184C21 6.04 21 7.16 21 9.4V16.5M6.2 21H14.3C15.42 21 15.98 21 16.408 20.782C16.784 20.59 17.09 20.284 17.282 19.908C17.5 19.48 17.5 18.92 17.5 17.8V9.7C17.5 8.58 17.5 8.02 17.282 7.592C17.09 7.216 16.784 6.91 16.408 6.718C15.98 6.5 15.42 6.5 14.3 6.5H6.2C5.08 6.5 4.52 6.5 4.092 6.718C3.716 6.91 3.41 7.216 3.218 7.592C3 8.02 3 8.58 3 9.7V17.8C3 18.92 3 19.48 3.218 19.908C3.41 20.284 3.716 20.59 4.092 20.782C4.52 21 5.08 21 6.2 21Z"/></svg>',
+  }));
+
+  // hover dropdown → copy full raw JSON
+  copyWrap.appendChild(el('div', { class: 'copy-menu' },
+    el('button', {
+      class: 'copy-menu-item',
+      onclick: () => {
+        _copyText(JSON.stringify(summary, null, 2));
+        _flashCopied(copyWrap);
+      },
+    }, 'Copy full JSON'),
+  ));
+
+  copyWrap.appendChild(copyToast);
+  hdr.appendChild(copyWrap);
   card.appendChild(hdr);
   card.appendChild(el('div', { class: 'filename' }, `${summary.event_count} events in ${summary.duration_s.toFixed(1)}s`));
 
