@@ -104,19 +104,57 @@ async def api_pick(multi: bool = False) -> JSONResponse:
 
 
 @app.get("/api/find")
-async def api_find(name: str) -> JSONResponse:
-    """Spotlight search by display name — resolves a dropped filename to an absolute path."""
+async def api_find(name: str, hint: str = "") -> JSONResponse:
+    """Resolve a dropped filename to an absolute path.
+
+    Strategy:
+    1. Spotlight (mdfind) — fast, covers indexed volumes.
+    2. If mdfind returns nothing, fall back to BSD find(1) searching common
+       media roots (/Volumes, ~/Movies, ~/Desktop, ~/Downloads) plus any
+       `hint` directory the client already knows about (e.g. the last-used
+       directory).  find(1) reaches external/network drives Spotlight skips.
+    """
+    exts = {".mp4", ".m4v", ".mkv", ".mov", ".ts"}
+
+    # 1. Spotlight
+    paths: list[str] = []
     try:
         result = subprocess.run(
             ["mdfind", f"kMDItemDisplayName == '{name}'"],
             capture_output=True, text=True, timeout=5,
         )
         paths = [p.strip() for p in result.stdout.splitlines() if p.strip()]
+        paths = [p for p in paths if Path(p).suffix.lower() in exts]
     except (FileNotFoundError, subprocess.TimeoutExpired):
         paths = []
-    exts = {".mp4", ".m4v", ".mkv", ".mov", ".ts"}
-    paths = [p for p in paths if Path(p).suffix.lower() in exts][:20]
-    return JSONResponse({"name": name, "paths": paths})
+
+    # 2. find(1) fallback — used when Spotlight misses (external/excluded volumes)
+    if not paths:
+        search_roots = ["/Volumes", os.path.expanduser("~/Movies"),
+                        os.path.expanduser("~/Desktop"), os.path.expanduser("~/Downloads")]
+        if hint:
+            h = os.path.expanduser(hint)
+            if os.path.isdir(h):
+                search_roots.insert(0, h)
+        # Deduplicate while preserving order
+        seen: set[str] = set()
+        unique_roots = [r for r in search_roots if not (r in seen or seen.add(r))]  # type: ignore[func-returns-value]
+        for root in unique_roots:
+            if not os.path.exists(root):
+                continue
+            try:
+                result = subprocess.run(
+                    ["find", root, "-maxdepth", "8", "-name", name],
+                    capture_output=True, text=True, timeout=10,
+                )
+                for p in result.stdout.splitlines():
+                    p = p.strip()
+                    if p and Path(p).suffix.lower() in exts and p not in paths:
+                        paths.append(p)
+            except subprocess.TimeoutExpired:
+                continue
+
+    return JSONResponse({"name": name, "paths": paths[:20]})
 
 
 # ---------------------------------------------------------------------------

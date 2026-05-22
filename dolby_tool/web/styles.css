@@ -100,6 +100,32 @@ main {
 .dropzone p { margin: 0 0 12px; color: var(--text-dim); }
 .dropzone .hint { font-size: 12px; margin-top: 8px; }
 
+/* Disambiguation overlay — shown when multiple files share the same name */
+.disambig-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.72);
+  display: flex; align-items: center; justify-content: center; z-index: 1000;
+}
+.disambig-box {
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: 10px; padding: 20px 24px; max-width: 640px; width: 90%;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.disambig-box p { margin: 0 0 4px; font-weight: 600; color: var(--text); }
+.disambig-btn {
+  display: flex; align-items: baseline; gap: 10px;
+  background: #1a1f2e; border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 12px; cursor: pointer; text-align: left; color: var(--text);
+}
+.disambig-btn:hover { border-color: var(--accent); background: #1c2230; }
+.disambig-idx { color: var(--accent); font-weight: 700; min-width: 18px; }
+.disambig-path { font-family: monospace; font-size: 12px; color: var(--text-dim); word-break: break-all; }
+.disambig-cancel {
+  margin-top: 4px; align-self: flex-end; background: none;
+  border: 1px solid var(--border); border-radius: 6px; padding: 6px 14px;
+  color: var(--text-dim); cursor: pointer;
+}
+.disambig-cancel:hover { color: var(--text); border-color: var(--text-dim); }
+
 .row {
   display: flex;
   gap: 8px;

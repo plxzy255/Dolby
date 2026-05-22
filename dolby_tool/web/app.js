@@ -52,6 +52,14 @@ function kv(k, v, pillClass) {
   return el('div', { class: 'kv' }, el('span', { class: 'k' }, k), valueEl);
 }
 
+// Last directory successfully resolved — passed as hint to /api/find so the
+// find(1) fallback searches there first (useful for external volumes Spotlight skips).
+let _lastResolvedDir = '';
+
+function _recordDir(p) {
+  if (p) _lastResolvedDir = p.includes('/') ? p.substring(0, p.lastIndexOf('/')) : '';
+}
+
 function pathFromDataTransfer(dt) {
   // Safari passes file:// URIs; Chrome/Firefox only expose File objects — no .path
   const uri = dt.getData('text/uri-list') || dt.getData('text/plain');
@@ -62,33 +70,48 @@ function pathFromDataTransfer(dt) {
   return null;
 }
 
+function _disambiguate(name, paths) {
+  // Inline disambiguation dialog rendered into a temporary overlay
+  return new Promise((resolve) => {
+    const overlay = el('div', { class: 'disambig-overlay' });
+    const box = el('div', { class: 'disambig-box' });
+    box.appendChild(el('p', {}, `Multiple files named "${name}" found — pick one:`));
+    paths.forEach((p, i) => {
+      const btn = el('button', { class: 'disambig-btn', onclick: () => { overlay.remove(); resolve(p); } },
+        el('span', { class: 'disambig-idx' }, String(i + 1)),
+        el('span', { class: 'disambig-path' }, p),
+      );
+      box.appendChild(btn);
+    });
+    box.appendChild(el('button', { class: 'disambig-cancel', onclick: () => { overlay.remove(); resolve(null); } }, 'Cancel'));
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+  });
+}
+
 async function pathsFromDataTransfer(dt, multi) {
-  // Try URI list first (Safari)
+  // Try URI list first (Safari — exposes file:// URIs directly)
   const uriList = (dt.getData('text/uri-list') || dt.getData('text/plain'))
     .split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
   if (uriList.length) {
     const paths = uriList.map((u) => u.startsWith('file://') ? decodeURIComponent(u.slice(7)) : u);
+    paths.forEach(_recordDir);
     return paths;
   }
-  // Fallback: File objects (Chrome on macOS) — resolve via Spotlight
+  // Fallback: File objects (Chrome on macOS) — resolve via Spotlight + find(1)
   const files = Array.from(dt.files || []);
   if (!files.length) return [];
   const resolved = await Promise.all(files.map(async (f) => {
-    const res = await fetch('/api/find?name=' + encodeURIComponent(f.name)).then((r) => r.json());
-    if (res.paths.length === 1) return res.paths[0];
+    const url = '/api/find?name=' + encodeURIComponent(f.name) +
+      (_lastResolvedDir ? '&hint=' + encodeURIComponent(_lastResolvedDir) : '');
+    const res = await fetch(url).then((r) => r.json());
+    if (res.paths.length === 1) { _recordDir(res.paths[0]); return res.paths[0]; }
     if (res.paths.length > 1) {
-      // Multiple hits — show a disambiguation prompt
-      const choice = window.prompt(
-        `Found ${res.paths.length} files named "${f.name}":\n\n` +
-        res.paths.map((p, i) => `${i + 1}. ${p}`).join('\n') +
-        '\n\nEnter number to select (or Cancel to skip):',
-        '1',
-      );
-      const idx = parseInt(choice, 10) - 1;
-      return (idx >= 0 && idx < res.paths.length) ? res.paths[idx] : null;
+      const chosen = await _disambiguate(f.name, res.paths);
+      if (chosen) _recordDir(chosen);
+      return chosen;
     }
-    // Not indexed by Spotlight — ask user to use Browse
-    alert(`Could not locate "${f.name}" via Spotlight. Use Browse… or paste the full path instead.`);
+    alert(`Could not locate "${f.name}". Use Browse… or paste the full path instead.`);
     return null;
   }));
   return resolved.filter(Boolean);
