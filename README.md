@@ -9,18 +9,24 @@ Apple TV.app silently falls back from Dolby Vision to plain HDR10 when an MP4's 
 ## Requirements
 
 - macOS (uses `log stream` and `osascript`)
-- Python 3.10+
+- Python 3.14+ (managed automatically by [uv](https://docs.astral.sh/uv/))
 - `ffmpeg` / `ffprobe` (`brew install ffmpeg`)
 - *(Optional)* `mediainfo` for richer Atmos detection (`brew install mediainfo`)
 
 ## Run
 
 ```bash
-cd /Users/psp/Development/Dolby/dolby-tool
-./dolby-tool
+./dolby-tool          # start server + open Safari at http://localhost:7878
+./dolby-tool stop     # kill the running instance
 ```
 
-First run creates a venv and installs FastAPI + uvicorn. Subsequent runs reuse it. The browser opens at <http://localhost:7878>.
+[uv](https://docs.astral.sh/uv/) is required — install with:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+First run syncs the venv and installs dependencies automatically. Subsequent runs reuse it.
 
 ## Tabs
 
@@ -43,24 +49,25 @@ Click **Start Capture**, play something in TV.app, click **Stop**. The app runs 
 ## Project layout
 
 ```
-dolby-tool/
-  dolby_tool/
-    __main__.py     # entrypoint
-    server.py       # FastAPI app + WebSocket
-    inspect.py      # ffprobe → structured spec
-    compare.py      # diff/rank logic
-    tvlog.py        # log stream subprocess + parser
-    web/
-      index.html
-      app.js
-      styles.css
-  requirements.txt
-  dolby-tool        # bash launcher
-  README.md
+dolby_tool/
+  __main__.py     # entrypoint
+  server.py       # FastAPI app + WebSocket
+  inspect.py      # ffprobe → structured spec
+  compare.py      # diff/rank logic
+  tvlog.py        # log stream subprocess + parser
+  web/
+    index.html
+    app.js
+    styles.css
+pyproject.toml
+uv.lock
+dolby-tool        # bash launcher
+README.md
 ```
 
 ## Notes
 
 - File uploads are intentionally disabled — videos are too large. The tool works on file paths, which you can drag in from Finder or pick via the native macOS file picker.
+- Drag-and-drop resolves paths via Spotlight first; falls back to `find(1)` searching `/Volumes` and common dirs (covers external drives Spotlight skips).
 - `log stream` will likely prompt for permission on first capture; macOS may ask for Developer Tools or similar entitlements.
-- The TV.app file detection (the "I just played something, what was it?") works *retroactively* — you start capture, then play, then stop. There's no continuous mode by default.
+- The TV.app file detection works *retroactively* — start capture, play in TV.app, then stop.
