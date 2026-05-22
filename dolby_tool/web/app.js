@@ -748,23 +748,52 @@ function formatEventSummary(ev) {
   }
 }
 
-function _copyText(text) {
+async function _copyText(text) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).catch(() => {});
-  } else {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.left = '-9999px'; ta.style.position = 'fixed';
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Embedded browsers can expose navigator.clipboard but still reject writes.
+      // Fall through to the selection-based copy path while the click is active.
+    }
   }
+
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.left = '-9999px';
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  ta.setSelectionRange(0, ta.value.length);
+  try {
+    document.execCommand('copy');
+  } catch {
+    document.body.removeChild(ta);
+    return false;
+  }
+  document.body.removeChild(ta);
+  return true;
 }
 
-function _flashCopied(wrap) {
-  wrap.classList.add('copied');
-  setTimeout(() => wrap.classList.remove('copied'), 1200);
+function _setCopyStatus(wrap, message, ok) {
+  const status = wrap.querySelector('.copy-status');
+  status.textContent = message;
+  wrap.classList.toggle('copy-ok', ok);
+  wrap.classList.toggle('copy-error', !ok);
+  setTimeout(() => {
+    wrap.classList.remove('copy-ok');
+    wrap.classList.remove('copy-error');
+    status.textContent = '';
+  }, 1200);
+}
+
+async function _copyFromButton(wrap, text) {
+  const copied = await _copyText(text);
+  _setCopyStatus(wrap, copied ? 'Copied' : 'Copy failed', copied);
 }
 
 function renderCaptureSummary(summary) {
@@ -775,35 +804,34 @@ function renderCaptureSummary(summary) {
   hdr.appendChild(el('h2', {}, 'Playback summary'));
 
   const copyWrap = el('div', { class: 'copy-wrap' });
-  const copyToast = el('span', { class: 'copy-toast' }, 'Copied');
+  const copyStatus = el('span', { class: 'copy-status', 'aria-live': 'polite' });
 
-  // icon click → copy UI-only summary
   copyWrap.appendChild(el('button', {
     class: 'copy-icon-btn',
+    type: 'button',
     title: 'Copy summary',
-    onclick: () => {
-      _copyText(JSON.stringify({
+    'aria-label': 'Copy summary',
+    onclick: async () => {
+      await _copyFromButton(copyWrap, JSON.stringify({
         event_count: summary.event_count,
         duration_s: summary.duration_s,
         playback: summary.playback,
       }, null, 2));
-      _flashCopied(copyWrap);
     },
     html: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 3H14.6C16.84 3 17.96 3 18.816 3.436C19.569 3.819 20.181 4.431 20.564 5.184C21 6.04 21 7.16 21 9.4V16.5M6.2 21H14.3C15.42 21 15.98 21 16.408 20.782C16.784 20.59 17.09 20.284 17.282 19.908C17.5 19.48 17.5 18.92 17.5 17.8V9.7C17.5 8.58 17.5 8.02 17.282 7.592C17.09 7.216 16.784 6.91 16.408 6.718C15.98 6.5 15.42 6.5 14.3 6.5H6.2C5.08 6.5 4.52 6.5 4.092 6.718C3.716 6.91 3.41 7.216 3.218 7.592C3 8.02 3 8.58 3 9.7V17.8C3 18.92 3 19.48 3.218 19.908C3.41 20.284 3.716 20.59 4.092 20.782C4.52 21 5.08 21 6.2 21Z"/></svg>',
   }));
 
-  // hover dropdown → copy full raw JSON
   copyWrap.appendChild(el('div', { class: 'copy-menu' },
     el('button', {
       class: 'copy-menu-item',
-      onclick: () => {
-        _copyText(JSON.stringify(summary, null, 2));
-        _flashCopied(copyWrap);
+      type: 'button',
+      onclick: async () => {
+        await _copyFromButton(copyWrap, JSON.stringify(summary, null, 2));
       },
     }, 'Copy full JSON'),
   ));
 
-  copyWrap.appendChild(copyToast);
+  copyWrap.appendChild(copyStatus);
   hdr.appendChild(copyWrap);
   card.appendChild(hdr);
   card.appendChild(el('div', { class: 'filename' }, `${summary.event_count} events in ${summary.duration_s.toFixed(1)}s`));

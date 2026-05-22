@@ -534,14 +534,11 @@ details pre {
   font-family: var(--sans);
 }
 .copy-menu-item:hover { background: var(--bg-row); }
-/* copy feedback toast */
-.copy-toast {
+.copy-status {
   position: absolute;
   right: 0;
   top: 100%;
   margin-top: 2px;
-  background: var(--good);
-  color: var(--bg);
   font-size: 11px;
   font-weight: 600;
   padding: 2px 8px;
@@ -553,7 +550,16 @@ details pre {
   transition: opacity 0.15s, transform 0.15s;
   z-index: 25;
 }
-.copy-wrap.copied .copy-toast {
+.copy-wrap.copy-ok .copy-status,
+.copy-wrap.copy-error .copy-status {
   opacity: 1;
   transform: translateY(0);
+}
+.copy-wrap.copy-ok .copy-status {
+  background: var(--good);
+  color: var(--bg);
+}
+.copy-wrap.copy-error .copy-status {
+  background: var(--bad);
+  color: var(--text);
 }
