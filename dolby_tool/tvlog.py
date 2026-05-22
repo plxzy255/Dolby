@@ -97,6 +97,15 @@ RE_LUMA = re.compile(
     re.IGNORECASE,
 )
 
+RE_AUDIO_STATUS = re.compile(
+    r"^(?P<format>\S+)"
+    r"(?:\s+is\s+(?P<decodable>decodable|not decodable))?"
+    r"(?:\s+ch=(?P<channels>\d+))?$",
+    re.IGNORECASE,
+)
+
+NOISE_AUDIO_FORMATS = {"table:"}
+
 
 def _parse_line(line: str) -> dict[str, Any] | None:
     if m := RE_FIG_ALT.search(line):
@@ -143,6 +152,10 @@ def _parse_line(line: str) -> dict[str, Any] | None:
         d = m.groupdict()
         fmt = d["bracket_format"] or d["summary_format"]
         channels = d["bracket_channels"] or d["summary_channels"]
+        decodable = d["summary_decodable"] == "decodable" if d["summary_decodable"] else None
+        fmt, channels, decodable = _normalize_audio_fields(fmt, channels, decodable)
+        if not fmt:
+            return None
         return {
             "kind": "audio_format",
             "raw": line.rstrip(),
@@ -151,7 +164,7 @@ def _parse_line(line: str) -> dict[str, Any] | None:
             "sample_rate": _int(d["bracket_rate"]),
             "spatialization_eligible": d["bracket_spat_elig"],
             "spatialization": d["bracket_spat"],
-            "decodable": d["summary_decodable"] == "decodable" if d["summary_decodable"] else None,
+            "decodable": decodable,
         }
     if m := RE_FILE_PLAYER.search(line):
         d = m.groupdict()
@@ -187,6 +200,28 @@ def _float(v: Any) -> float | None:
         return float(v) if v is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def _normalize_audio_fields(
+    audio_format: Any,
+    channels: Any,
+    decodable: bool | None,
+) -> tuple[str | None, Any, bool | None]:
+    fmt = str(audio_format).strip() if audio_format is not None else ""
+    if not fmt or fmt.lower() in NOISE_AUDIO_FORMATS:
+        return None, channels, decodable
+
+    if m := RE_AUDIO_STATUS.match(fmt):
+        d = m.groupdict()
+        fmt = d["format"]
+        if channels is None:
+            channels = d["channels"]
+        if decodable is None and d["decodable"]:
+            decodable = d["decodable"] == "decodable"
+
+    if fmt.lower() in NOISE_AUDIO_FORMATS:
+        return None, channels, decodable
+    return fmt, channels, decodable
 
 
 def _audio_summary(event: dict[str, Any]) -> dict[str, Any]:
