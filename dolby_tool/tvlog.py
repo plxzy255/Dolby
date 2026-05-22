@@ -48,32 +48,54 @@ RE_FIG_ALT = re.compile(
     r"(?:\s*\[FrameRate\s+(?P<fps>[\d.]+)\])?"
 )
 
+# Normalized/compact capture output may only preserve the variant resolution.
+# HLS_VARIANT nullxnull
+RE_HLS_VARIANT_SUMMARY = re.compile(
+    r"HLS_VARIANT\s+(?P<width>\d+|null)x(?P<height>\d+|null)",
+    re.IGNORECASE,
+)
+
 # CodecType: dvh1 (HW decoder), DecodedPixelBuffer: &xv0, 3840 x 1600
+# CODEC_TYPE qdh1 (HW decoder)
 RE_CODEC_TYPE = re.compile(
-    r"CodecType:\s*(?P<fourcc>\w+)"
+    r"(?:CodecType:\s*|CODEC_TYPE\s+)(?P<fourcc>\w+)"
     r"(?:\s*\((?P<decoder>[^)]+)\))?"
     r"(?:[^,]*?,\s*(?P<width>\d+)\s*x\s*(?P<height>\d+))?"
 )
 
 # codecType: HEVC, encryptionScheme N, W x H
+# FILE_PLAYER HEVC enc=4 3840x1606
 RE_FILE_PLAYER = re.compile(
-    r"codecType:\s*(?P<codec>\w+)"
-    r"(?:,\s*encryptionScheme\s+(?P<enc>\d+))?"
-    r"(?:,\s*(?P<width>\d+)\s*x\s*(?P<height>\d+))?",
+    r"(?:codecType:\s*|FILE_PLAYER\s+)(?P<codec>\w+)"
+    r"(?:,\s*encryptionScheme\s+|\s+enc=)?(?P<enc>\d+)?"
+    r"(?:,\s*|\s+)?(?P<width>\d+)?\s*x?\s*(?P<height>\d+)?",
     re.IGNORECASE,
 )
 
 # [AudioFormat ec+3] [AudioChannels 16] [SampleRate 48000] [Spatialization Eligible yes] [Spatialization yes]
+# AUDIO_FORMAT qc+3 is decodable ch=16
 RE_AUDIO_FORMAT = re.compile(
-    r"\[AudioFormat\s+(?P<format>[^\]]+)\]"
-    r"(?:\s*\[AudioChannels\s+(?P<channels>\d+)\])?"
-    r"(?:\s*\[SampleRate\s+(?P<rate>\d+)\])?"
-    r"(?:\s*\[Spatialization\s+Eligible\s+(?P<spat_elig>\w+)\])?"
-    r"(?:\s*\[Spatialization\s+(?P<spat>\w+)\])?"
+    r"(?:"
+    r"\[AudioFormat\s+(?P<bracket_format>[^\]]+)\]"
+    r"(?:\s*\[AudioChannels\s+(?P<bracket_channels>\d+)\])?"
+    r"(?:\s*\[SampleRate\s+(?P<bracket_rate>\d+)\])?"
+    r"(?:\s*\[Spatialization\s+Eligible\s+(?P<bracket_spat_elig>\w+)\])?"
+    r"(?:\s*\[Spatialization\s+(?P<bracket_spat>\w+)\])?"
+    r"|"
+    r"AUDIO_FORMAT\s+(?P<summary_format>\S+)"
+    r"(?:\s+is\s+(?P<summary_decodable>decodable|not decodable))?"
+    r"(?:\s+ch=(?P<summary_channels>\d+))?"
+    r")",
+    re.IGNORECASE,
 )
 
 # luma depth 10 chroma format 1
-RE_LUMA = re.compile(r"luma depth\s+(?P<luma>\d+).*?chroma format\s+(?P<chroma>\d+)")
+# LUMA_CHROMA luma=10 chroma=1
+RE_LUMA = re.compile(
+    r"(?:luma depth\s+|LUMA_CHROMA\s+luma=)(?P<luma>\d+)"
+    r".*?(?:chroma format\s+|chroma=)(?P<chroma>\d+)",
+    re.IGNORECASE,
+)
 
 
 def _parse_line(line: str) -> dict[str, Any] | None:
@@ -92,6 +114,21 @@ def _parse_line(line: str) -> dict[str, Any] | None:
             "hdcp": d["hdcp"],
             "fps": _float(d["fps"]),
         }
+    if m := RE_HLS_VARIANT_SUMMARY.search(line):
+        d = m.groupdict()
+        return {
+            "kind": "hls_variant",
+            "raw": line.rstrip(),
+            "id": None,
+            "peak_bps": None,
+            "avg_bps": None,
+            "width": _int(d["width"]),
+            "height": _int(d["height"]),
+            "codecs": None,
+            "video_range": None,
+            "hdcp": None,
+            "fps": None,
+        }
     if m := RE_CODEC_TYPE.search(line):
         d = m.groupdict()
         return {
@@ -104,14 +141,17 @@ def _parse_line(line: str) -> dict[str, Any] | None:
         }
     if m := RE_AUDIO_FORMAT.search(line):
         d = m.groupdict()
+        fmt = d["bracket_format"] or d["summary_format"]
+        channels = d["bracket_channels"] or d["summary_channels"]
         return {
             "kind": "audio_format",
             "raw": line.rstrip(),
-            "format": d["format"],
-            "channels": _int(d["channels"]),
-            "sample_rate": _int(d["rate"]),
-            "spatialization_eligible": d["spat_elig"],
-            "spatialization": d["spat"],
+            "format": fmt,
+            "channels": _int(channels),
+            "sample_rate": _int(d["bracket_rate"]),
+            "spatialization_eligible": d["bracket_spat_elig"],
+            "spatialization": d["bracket_spat"],
+            "decodable": d["summary_decodable"] == "decodable" if d["summary_decodable"] else None,
         }
     if m := RE_FILE_PLAYER.search(line):
         d = m.groupdict()
@@ -294,17 +334,22 @@ class LogCapture:
                     f"{last_codec['width']}x{last_codec['height']}"
                 )
         if last_audio:
+            audio_format = (last_audio.get("format") or "").lower()
+            is_known_atmos = audio_format in {"ec+3", "ec-3", "ec3"} and last_audio.get("spatialization") == "yes"
             playback["audio"] = {
                 "format": last_audio.get("format"),
                 "channels": last_audio.get("channels"),
                 "sample_rate": last_audio.get("sample_rate"),
                 "spatialization": last_audio.get("spatialization"),
                 "spatialization_eligible": last_audio.get("spatialization_eligible"),
-                "is_atmos": (
-                    (last_audio.get("format") or "").lower() in {"ec+3", "ec-3", "ec3"}
-                    and last_audio.get("spatialization") == "yes"
-                ),
+                "decodable": last_audio.get("decodable"),
+                "is_atmos": is_known_atmos,
             }
+            if audio_format == "qc+3":
+                playback["audio"]["diagnosis"] = (
+                    "Audio format 'qc+3' was reported as decodable by TV.app. "
+                    "Preserving it as an unknown Dolby-like Apple/QuickTime path, not confirmed Atmos."
+                )
         if last_file:
             playback["file_player"] = last_file
 
@@ -317,6 +362,14 @@ class LogCapture:
             playback["dv_diagnosis"] = (
                 "Local file decoded as 'hvc1' — TV.app did NOT engage DV pipeline. "
                 "Re-tag sample-entry to 'dvh1' to fix."
+            )
+        elif decoded == "qdh1":
+            playback["dolby_vision_active"] = None
+            playback["dv_label"] = "Possibly DV / Apple private HDR path"
+            playback["dv_diagnosis"] = (
+                "Decoded as 'qdh1' via hardware decoder. This is not the known hvc1 fallback, "
+                "but it is also not the standard dvh1/dvhe Dolby Vision marker. Treat as an "
+                "Apple/QuickTime private HDR/DV-like path until correlated with display output."
             )
         else:
             playback["dolby_vision_active"] = None

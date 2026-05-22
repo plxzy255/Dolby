@@ -1,5 +1,5 @@
 from dolby_tool.compare import compare_files
-from dolby_tool.tvlog import _parse_line
+from dolby_tool.tvlog import LogCapture, _parse_line
 
 
 def test_parse_line_figalternate():
@@ -19,6 +19,37 @@ def test_parse_line_codec_type():
     assert out is not None
     assert out["kind"] == "codec_type"
     assert out["fourcc"] == "dvh1"
+
+
+def test_qdh1_cloud_capture_is_recognized_but_not_confirmed_dv():
+    lines = [
+        "FILE_PLAYER HEVC enc=4 3840x1606",
+        "HLS_VARIANT nullxnull",
+        "CODEC_TYPE qdh1 (HW decoder)",
+        "LUMA_CHROMA luma=10 chroma=1",
+        "FILE_PLAYER HEVC enc=4 1918x802",
+        "AUDIO_FORMAT qc+3 is decodable ch=16",
+        "CODEC_TYPE qdh1 (HW decoder)",
+    ]
+    events = [_parse_line(line) for line in lines]
+    assert all(event is not None for event in events)
+
+    capture = LogCapture()
+    capture.events = [event for event in events if event is not None]
+    summary = capture.summarize()
+    playback = summary["playback"]
+
+    assert playback["source"] == "hls"
+    assert playback["decoded_fourcc"] == "qdh1"
+    assert playback["dolby_vision_active"] is None
+    assert playback["dv_label"] == "Possibly DV / Apple private HDR path"
+    assert "known hvc1 fallback" in playback["dv_diagnosis"]
+    assert playback["file_player"]["encryption_scheme"] == 4
+    assert playback["audio"]["format"] == "qc+3"
+    assert playback["audio"]["channels"] == 16
+    assert playback["audio"]["decodable"] is True
+    assert playback["audio"]["is_atmos"] is False
+    assert "unknown Dolby-like" in playback["audio"]["diagnosis"]
 
 
 def test_compare_uses_custom_weights(monkeypatch):
