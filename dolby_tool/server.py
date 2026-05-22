@@ -1,0 +1,199 @@
+"""FastAPI app: REST endpoints + WebSocket for live TV.app log stream."""
+from __future__ import annotations
+
+import asyncio
+import os
+import subprocess
+from pathlib import Path
+from typing import Any
+
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+from .compare import compare_files
+from .inspect import InspectError, inspect_file
+from .tvlog import LogCapture
+
+
+WEB_DIR = Path(__file__).parent / "web"
+
+app = FastAPI(title="dolby-tool", version="0.1.0")
+
+# Single-process capture state — this tool is single-user single-tab by design.
+_capture: LogCapture | None = None
+_capture_lock = asyncio.Lock()
+
+
+# ---------------------------------------------------------------------------
+# static
+
+
+@app.get("/")
+async def index() -> FileResponse:
+    return FileResponse(WEB_DIR / "index.html")
+
+
+app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
+
+
+# ---------------------------------------------------------------------------
+# inspect / compare
+
+
+class PathPayload(BaseModel):
+    path: str
+
+
+class PathsPayload(BaseModel):
+    paths: list[str]
+
+
+@app.post("/api/inspect")
+async def api_inspect(body: PathPayload) -> dict[str, Any]:
+    path = _normalize_path(body.path)
+    try:
+        return inspect_file(path)
+    except InspectError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/compare")
+async def api_compare(body: PathsPayload) -> dict[str, Any]:
+    paths = [_normalize_path(p) for p in body.paths]
+    if not paths:
+        raise HTTPException(status_code=400, detail="no paths provided")
+    return compare_files(paths)
+
+
+# ---------------------------------------------------------------------------
+# file picker (native macOS dialog via osascript)
+
+
+@app.get("/api/pick")
+async def api_pick(multi: bool = False) -> JSONResponse:
+    """Pop the macOS 'choose file' dialog and return absolute path(s)."""
+    if multi:
+        script = (
+            'set theFiles to (choose file with prompt "Pick file(s)" with multiple selections allowed)\n'
+            'set out to ""\n'
+            'repeat with f in theFiles\n'
+            '  set out to out & POSIX path of f & "\\n"\n'
+            'end repeat\n'
+            'return out'
+        )
+    else:
+        script = 'POSIX path of (choose file with prompt "Pick a file")'
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script], capture_output=True, text=True, timeout=300
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="osascript not available")
+    if result.returncode != 0:
+        # user pressed cancel → return empty list
+        return JSONResponse({"paths": []})
+    paths = [
+        line.strip() for line in result.stdout.splitlines() if line.strip()
+    ]
+    return JSONResponse({"paths": paths})
+
+
+# ---------------------------------------------------------------------------
+# directory listing — used by Compare tab to pull all media in a folder
+
+
+@app.get("/api/list")
+async def api_list(path: str) -> dict[str, Any]:
+    path = _normalize_path(path)
+    if not os.path.isdir(path):
+        raise HTTPException(status_code=400, detail="not a directory")
+    exts = {".mp4", ".m4v", ".mkv", ".mov", ".ts"}
+    entries = []
+    for name in sorted(os.listdir(path)):
+        full = os.path.join(path, name)
+        if not os.path.isfile(full):
+            continue
+        if Path(name).suffix.lower() not in exts:
+            continue
+        try:
+            size = os.path.getsize(full)
+        except OSError:
+            size = None
+        entries.append({"path": full, "name": name, "size": size})
+    return {"path": path, "files": entries}
+
+
+# ---------------------------------------------------------------------------
+# TV.app log capture — WebSocket
+
+
+@app.websocket("/ws/tvlog")
+async def ws_tvlog(ws: WebSocket) -> None:
+    global _capture
+    await ws.accept()
+    loop = asyncio.get_event_loop()
+    queue: asyncio.Queue | None = None
+    try:
+        while True:
+            msg = await ws.receive_json()
+            cmd = msg.get("cmd")
+
+            if cmd == "start":
+                async with _capture_lock:
+                    if _capture is not None:
+                        _capture.stop()
+                    _capture = LogCapture()
+                    _capture.start(loop)
+                    queue = _capture.subscribe()
+                await ws.send_json({"type": "started", "predicate": _capture.events})
+                # Pump events to client while capture is live
+                asyncio.create_task(_pump(ws, queue))
+
+            elif cmd == "stop":
+                async with _capture_lock:
+                    if _capture is None:
+                        await ws.send_json({"type": "error", "message": "no capture running"})
+                        continue
+                    summary = _capture.stop()
+                    if queue is not None:
+                        _capture.unsubscribe(queue)
+                    _capture = None
+                    queue = None
+                await ws.send_json({"type": "summary", "summary": summary})
+
+            elif cmd == "ping":
+                await ws.send_json({"type": "pong"})
+
+            else:
+                await ws.send_json({"type": "error", "message": f"unknown cmd: {cmd}"})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        async with _capture_lock:
+            if _capture is not None:
+                _capture.stop()
+                _capture = None
+
+
+async def _pump(ws: WebSocket, queue: asyncio.Queue) -> None:
+    try:
+        while True:
+            event = await queue.get()
+            await ws.send_json({"type": "event", "event": event})
+    except (WebSocketDisconnect, RuntimeError):
+        return
+
+
+# ---------------------------------------------------------------------------
+# helpers
+
+
+def _normalize_path(p: str) -> str:
+    """Strip file:// prefix and decode percent-escapes so the UI can send drag-drop URIs."""
+    p = p.strip()
+    if p.startswith("file://"):
+        from urllib.parse import unquote
+        p = unquote(p[len("file://") :])
+    return os.path.expanduser(p)

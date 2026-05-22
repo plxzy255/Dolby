@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Launcher for dolby-tool. Activates venv (creating it on first run) and starts the server.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+VENV_DIR=".venv"
+
+if [ ! -d "$VENV_DIR" ]; then
+  echo "[dolby-tool] First run — creating virtualenv in $VENV_DIR ..."
+  python3 -m venv "$VENV_DIR"
+  # shellcheck disable=SC1091
+  source "$VENV_DIR/bin/activate"
+  pip install --quiet --upgrade pip
+  pip install --quiet -r requirements.txt
+  echo "[dolby-tool] Setup complete."
+else
+  # shellcheck disable=SC1091
+  source "$VENV_DIR/bin/activate"
+fi
+
+# Sanity checks
+command -v ffprobe >/dev/null 2>&1 || {
+  echo "[dolby-tool] WARNING: ffprobe not found. Install with: brew install ffmpeg" >&2
+}
+
+# Open the browser after a short delay (server starts immediately below)
+( sleep 1 && open "http://localhost:7878" ) &
+
+exec python -m dolby_tool "$@"
