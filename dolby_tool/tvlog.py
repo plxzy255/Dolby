@@ -595,6 +595,11 @@ class LogCapture:
             playback["file_player"] = last_file
         if renderer_events:
             playback["renderer_evidence"] = _renderer_summary(renderer_events)
+        playback["capture_quality"] = _capture_quality(
+            codec_events=codec_events,
+            audio_events=audio_events,
+            renderer_events=renderer_events,
+        )
 
         # DV verdict
         decoded = (playback.get("decoded_fourcc") or "").lower()
@@ -633,9 +638,14 @@ def _renderer_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
     routes = [e.get("route") for e in events if e["hint"] == "route" and e.get("route")]
     if routes:
         summary["routes"] = _unique_keep_order(routes)
+        summary["route_capability_label"] = _route_capability_label(summary["routes"][-1])
 
     media_events = [e for e in events if e["hint"] == "media_formatinfo"]
     if media_events:
+        app_states = [e.get("rendering_spatial_audio") for e in media_events]
+        app_states = [state for state in app_states if state is not None]
+        summary["app_spatial_rendering_ever_true"] = any(app_states)
+        summary["app_spatial_rendering_last_state"] = app_states[-1] if app_states else None
         summary["media_formatinfo"] = [
             {
                 "format": e.get("format"),
@@ -649,6 +659,8 @@ def _renderer_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
 
     power_events = [e for e in events if e["hint"] == "spatial_power"]
     if power_events:
+        summary["spatial_power_active"] = any(e.get("spatialization") is True for e in power_events)
+        summary["head_tracking_active"] = any(e.get("head_tracking") is True for e in power_events)
         summary["spatial_power"] = [
             {
                 "spatialization": e.get("spatialization"),
@@ -668,6 +680,8 @@ def _renderer_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
 
     decoder_states = [e for e in events if e["hint"] == "atmos_decoder_state"]
     if decoder_states:
+        summary["atmos_decoder_active"] = any(e.get("decoder_is_atmos") is True for e in decoder_states)
+        summary["oar_mode_active"] = any(e.get("decoder_oar_mode") is True for e in decoder_states)
         summary["atmos_decoder_states"] = [
             {
                 "decoder_is_atmos": e.get("decoder_is_atmos"),
@@ -686,6 +700,15 @@ def _renderer_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
 
     mixer_events = [e for e in events if e["hint"] == "mixer_spatial_status"]
     if mixer_events:
+        statuses = [
+            e.get("spatialization_status")
+            for e in mixer_events
+            if e.get("spatialization_status") is not None
+        ]
+        summary["mixer_content_spatializable"] = any(
+            e.get("content_spatializable") is True for e in mixer_events
+        )
+        summary["mixer_spatialization_statuses"] = _unique_keep_order(statuses)
         summary["mixer_spatial_status"] = [
             {
                 "format": e.get("format"),
@@ -702,7 +725,64 @@ def _renderer_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
     summary["spatial_rendering_changed_count"] = sum(
         1 for e in events if e["hint"] == "spatial_rendering_changed"
     )
+    summary["lower_level_spatialization_active"] = any(
+        summary.get(key) is True
+        for key in (
+            "spatial_power_active",
+            "atmos_decoder_active",
+            "oar_mode_active",
+            "mixer_content_spatializable",
+        )
+    )
+    if summary.get("app_spatial_rendering_last_state") is True:
+        summary["verdict"] = "app_spatial_rendering_active"
+    elif (
+        summary.get("app_spatial_rendering_last_state") is False
+        and summary["lower_level_spatialization_active"]
+    ):
+        summary["verdict"] = "lower_level_active_app_spatial_false"
+    elif summary["lower_level_spatialization_active"]:
+        summary["verdict"] = "lower_level_spatialization_active"
+    else:
+        summary["verdict"] = "no_spatial_renderer_activity"
     return summary
+
+
+def _capture_quality(
+    *,
+    codec_events: list[dict[str, Any]],
+    audio_events: list[dict[str, Any]],
+    renderer_events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if codec_events and not audio_events and not renderer_events:
+        return {
+            "label": "likely missed audio init",
+            "likely_missed_audio_init": True,
+            "note": (
+                "Decoded video events were captured, but no audio or renderer evidence was seen. "
+                "Start capture before playback begins to catch TV.app initialization."
+            ),
+        }
+    return {
+        "label": "complete" if (audio_events or renderer_events) else "not captured",
+        "likely_missed_audio_init": False,
+        "note": None,
+    }
+
+
+def _route_capability_label(route: str) -> str:
+    route_lower = route.lower()
+    if "not capable" in route_lower or "not spatial" in route_lower:
+        return "not capable of spatialization"
+    if "built-in" in route_lower or "macbook" in route_lower:
+        return "built-in speakers"
+    if "airpods" in route_lower or "headphone" in route_lower:
+        return "headphones"
+    if "bluetooth" in route_lower:
+        return "Bluetooth"
+    if "wired" in route_lower or "hdmi" in route_lower:
+        return "wired/headphone"
+    return "unknown route capability"
 
 
 def _unique_keep_order(values: list[Any]) -> list[Any]:

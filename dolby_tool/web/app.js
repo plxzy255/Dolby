@@ -95,6 +95,36 @@ function boolText(v) {
   return null;
 }
 
+function capturedText(v) {
+  const text = boolText(v);
+  return text == null ? 'not captured' : text;
+}
+
+function activeText(v) {
+  const text = boolText(v);
+  return text == null ? 'not captured' : (v ? 'active' : 'inactive');
+}
+
+function rendererVerdictLabel(r) {
+  if (!r) return null;
+  if (r.verdict === 'app_spatial_rendering_active') return {
+    text: 'App-level spatial rendering active',
+    className: 'good',
+  };
+  if (r.verdict === 'lower_level_active_app_spatial_false') return {
+    text: 'Atmos/spatial machinery active, but app-level spatial rendering flag is false',
+    className: 'warn',
+  };
+  if (r.verdict === 'lower_level_spatialization_active') return {
+    text: 'Lower-level Atmos/spatial machinery active',
+    className: 'good',
+  };
+  return {
+    text: 'No spatial renderer activity captured',
+    className: 'neutral',
+  };
+}
+
 function rendererMediaLabel(item) {
   if (!item) return '—';
   const parts = [
@@ -796,6 +826,9 @@ function renderCaptureSummary(summary) {
   if (p.dv_diagnosis) {
     card.appendChild(el('div', { class: 'warning' }, p.dv_diagnosis));
   }
+  if (p.capture_quality?.likely_missed_audio_init) {
+    card.appendChild(el('div', { class: 'warning' }, p.capture_quality.note));
+  }
 
   // Grid
   const g = el('div', { class: 'grid' });
@@ -825,6 +858,9 @@ function renderCaptureSummary(summary) {
     g.appendChild(kv('File codec', p.file_player.codec));
     g.appendChild(kv('Encryption scheme', p.file_player.encryption_scheme));
   }
+  if (p.capture_quality) {
+    g.appendChild(kv('Capture quality', p.capture_quality.label, p.capture_quality.likely_missed_audio_init ? 'warn' : 'neutral'));
+  }
   card.appendChild(g);
 
   if (p.observed_audio && p.observed_audio.length) {
@@ -842,8 +878,22 @@ function renderCaptureSummary(summary) {
   if (p.renderer_evidence) {
     card.appendChild(el('h3', {}, 'Spatial renderer evidence'));
     const r = p.renderer_evidence;
+    const verdict = rendererVerdictLabel(r);
+    if (verdict) {
+      card.appendChild(el('div', { class: `renderer-verdict ${verdict.className}` }, verdict.text));
+    }
     const rg = el('div', { class: 'grid' });
     if (r.routes?.length) rg.appendChild(kv('Output route', r.routes.join(', ')));
+    rg.appendChild(kv('Route capability', r.route_capability_label || 'not captured'));
+    rg.appendChild(kv('App spatial rendering ever true', capturedText(r.app_spatial_rendering_ever_true), r.app_spatial_rendering_ever_true ? 'good' : 'neutral'));
+    rg.appendChild(kv('App spatial rendering last state', capturedText(r.app_spatial_rendering_last_state), r.app_spatial_rendering_last_state ? 'good' : 'neutral'));
+    rg.appendChild(kv('Lower-level spatialization', activeText(r.lower_level_spatialization_active), r.lower_level_spatialization_active ? 'good' : 'neutral'));
+    rg.appendChild(kv('Spatial power', activeText(r.spatial_power_active), r.spatial_power_active ? 'good' : 'neutral'));
+    rg.appendChild(kv('Head tracking', activeText(r.head_tracking_active), r.head_tracking_active ? 'good' : 'neutral'));
+    rg.appendChild(kv('Atmos decoder', activeText(r.atmos_decoder_active), r.atmos_decoder_active ? 'good' : 'neutral'));
+    rg.appendChild(kv('OAR mode', activeText(r.oar_mode_active), r.oar_mode_active ? 'good' : 'neutral'));
+    rg.appendChild(kv('Mixer spatializable', capturedText(r.mixer_content_spatializable), r.mixer_content_spatializable ? 'good' : 'neutral'));
+    if (r.mixer_spatialization_statuses?.length) rg.appendChild(kv('Mixer spatialization statuses', r.mixer_spatialization_statuses.join(', ')));
     if (r.media_formatinfo?.length) {
       r.media_formatinfo.forEach((item, index) => {
         rg.appendChild(kv(index ? 'App spatial flag' : 'App spatial flag', rendererMediaLabel(item), item.rendering_spatial_audio ? 'good' : 'neutral'));
