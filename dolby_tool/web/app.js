@@ -714,43 +714,49 @@ function formatEventSummary(ev) {
   }
 }
 
-function fallbackCopy(text, btn) {
-  const ta = document.createElement('textarea');
-  ta.value = text;
-  ta.style.position = 'fixed';
-  ta.style.left = '-9999px';
-  ta.style.top = '-9999px';
-  document.body.appendChild(ta);
-  ta.select();
-  try { document.execCommand('copy'); btn.textContent = '✓ Copied'; btn.classList.add('copied'); }
-  catch { btn.textContent = 'Copy failed'; }
-  document.body.removeChild(ta);
-  setTimeout(() => { btn.textContent = 'Copy JSON'; btn.classList.remove('copied'); }, 1500);
+function _copyText(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).catch(() => {});
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.left = '-9999px'; ta.style.position = 'fixed';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+}
+
+function _copySummaryUI(summary) {
+  _copyText(JSON.stringify({
+    event_count: summary.event_count,
+    duration_s: summary.duration_s,
+    playback: summary.playback,
+  }, null, 2));
 }
 
 function renderCaptureSummary(summary) {
   const card = el('div', { class: 'card capt-summary' });
 
-  // header row: title + copy button
+  // header row: title + copy icon
   const hdr = el('div', { class: 'capt-summary-hdr' });
   hdr.appendChild(el('h2', {}, 'Playback summary'));
-  const copyBtn = el('button', {
-    class: 'btn copy-btn',
-    title: 'Copy summary as JSON',
-    onclick: () => {
-      const rawJson = JSON.stringify(summary, null, 2);
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(rawJson).then(() => {
-          copyBtn.textContent = '✓ Copied';
-          copyBtn.classList.add('copied');
-          setTimeout(() => { copyBtn.textContent = 'Copy JSON'; copyBtn.classList.remove('copied'); }, 1500);
-        }).catch(() => { fallbackCopy(rawJson, copyBtn); });
-      } else {
-        fallbackCopy(rawJson, copyBtn);
-      }
-    },
-  }, 'Copy JSON');
-  hdr.appendChild(copyBtn);
+  hdr.appendChild(
+    el('div', { class: 'copy-wrap' },
+      el('button', {
+        class: 'copy-icon-btn',
+        title: 'Copy summary',
+        html: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 3H14.6C16.84 3 17.96 3 18.816 3.436C19.569 3.819 20.181 4.431 20.564 5.184C21 6.04 21 7.16 21 9.4V16.5M6.2 21H14.3C15.42 21 15.98 21 16.408 20.782C16.784 20.59 17.09 20.284 17.282 19.908C17.5 19.48 17.5 18.92 17.5 17.8V9.7C17.5 8.58 17.5 8.02 17.282 7.592C17.09 7.216 16.784 6.91 16.408 6.718C15.98 6.5 15.42 6.5 14.3 6.5H6.2C5.08 6.5 4.52 6.5 4.092 6.718C3.716 6.91 3.41 7.216 3.218 7.592C3 8.02 3 8.58 3 9.7V17.8C3 18.92 3 19.48 3.218 19.908C3.41 20.284 3.716 20.59 4.092 20.782C4.52 21 5.08 21 6.2 21Z"/></svg>',
+      }),
+      el('div', { class: 'copy-menu' },
+        el('button', {
+          class: 'copy-menu-item',
+          onclick: () => _copySummaryUI(summary),
+        }, 'Copy summary JSON'),
+      ),
+    ),
+  );
   card.appendChild(hdr);
   card.appendChild(el('div', { class: 'filename' }, `${summary.event_count} events in ${summary.duration_s.toFixed(1)}s`));
 
