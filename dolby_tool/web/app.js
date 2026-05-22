@@ -714,9 +714,44 @@ function formatEventSummary(ev) {
   }
 }
 
+function fallbackCopy(text, btn) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  ta.style.top = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); btn.textContent = '✓ Copied'; btn.classList.add('copied'); }
+  catch { btn.textContent = 'Copy failed'; }
+  document.body.removeChild(ta);
+  setTimeout(() => { btn.textContent = 'Copy JSON'; btn.classList.remove('copied'); }, 1500);
+}
+
 function renderCaptureSummary(summary) {
-  const card = el('div', { class: 'card' });
-  card.appendChild(el('h2', {}, 'Playback summary'));
+  const card = el('div', { class: 'card capt-summary' });
+
+  // header row: title + copy button
+  const hdr = el('div', { class: 'capt-summary-hdr' });
+  hdr.appendChild(el('h2', {}, 'Playback summary'));
+  const copyBtn = el('button', {
+    class: 'btn copy-btn',
+    title: 'Copy summary as JSON',
+    onclick: () => {
+      const rawJson = JSON.stringify(summary, null, 2);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(rawJson).then(() => {
+          copyBtn.textContent = '✓ Copied';
+          copyBtn.classList.add('copied');
+          setTimeout(() => { copyBtn.textContent = 'Copy JSON'; copyBtn.classList.remove('copied'); }, 1500);
+        }).catch(() => { fallbackCopy(rawJson, copyBtn); });
+      } else {
+        fallbackCopy(rawJson, copyBtn);
+      }
+    },
+  }, 'Copy JSON');
+  hdr.appendChild(copyBtn);
+  card.appendChild(hdr);
   card.appendChild(el('div', { class: 'filename' }, `${summary.event_count} events in ${summary.duration_s.toFixed(1)}s`));
 
   const p = summary.playback || {};
