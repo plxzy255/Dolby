@@ -53,25 +53,55 @@ function kv(k, v, pillClass) {
 }
 
 function pathFromDataTransfer(dt) {
-  // Finder drag drops file:// URIs into text/uri-list
+  // Safari passes file:// URIs; Chrome/Firefox only expose File objects — no .path
   const uri = dt.getData('text/uri-list') || dt.getData('text/plain');
-  if (!uri) return null;
-  const first = uri.split('\n').find((l) => l.trim() && !l.startsWith('#'));
-  if (!first) return null;
-  if (first.startsWith('file://')) return decodeURIComponent(first.slice('file://'.length));
-  return first;
+  if (uri) {
+    const first = uri.split('\n').find((l) => l.trim() && !l.startsWith('#'));
+    if (first) return first.startsWith('file://') ? decodeURIComponent(first.slice('file://'.length)) : first;
+  }
+  return null;
 }
 
-function bindDropzone(el, onPath, { multi = false } = {}) {
-  el.addEventListener('dragover', (e) => { e.preventDefault(); el.classList.add('drag'); });
-  el.addEventListener('dragleave', () => el.classList.remove('drag'));
-  el.addEventListener('drop', (e) => {
-    e.preventDefault();
-    el.classList.remove('drag');
-    const uriList = (e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain'))
-      .split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+async function pathsFromDataTransfer(dt, multi) {
+  // Try URI list first (Safari)
+  const uriList = (dt.getData('text/uri-list') || dt.getData('text/plain'))
+    .split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+  if (uriList.length) {
     const paths = uriList.map((u) => u.startsWith('file://') ? decodeURIComponent(u.slice(7)) : u);
-    if (paths.length === 0) return;
+    return paths;
+  }
+  // Fallback: File objects (Chrome on macOS) — resolve via Spotlight
+  const files = Array.from(dt.files || []);
+  if (!files.length) return [];
+  const resolved = await Promise.all(files.map(async (f) => {
+    const res = await fetch('/api/find?name=' + encodeURIComponent(f.name)).then((r) => r.json());
+    if (res.paths.length === 1) return res.paths[0];
+    if (res.paths.length > 1) {
+      // Multiple hits — show a disambiguation prompt
+      const choice = window.prompt(
+        `Found ${res.paths.length} files named "${f.name}":\n\n` +
+        res.paths.map((p, i) => `${i + 1}. ${p}`).join('\n') +
+        '\n\nEnter number to select (or Cancel to skip):',
+        '1',
+      );
+      const idx = parseInt(choice, 10) - 1;
+      return (idx >= 0 && idx < res.paths.length) ? res.paths[idx] : null;
+    }
+    // Not indexed by Spotlight — ask user to use Browse
+    alert(`Could not locate "${f.name}" via Spotlight. Use Browse… or paste the full path instead.`);
+    return null;
+  }));
+  return resolved.filter(Boolean);
+}
+
+function bindDropzone(zone, onPath, { multi = false } = {}) {
+  zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('drag'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
+  zone.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    zone.classList.remove('drag');
+    const paths = await pathsFromDataTransfer(e.dataTransfer, multi);
+    if (!paths.length) return;
     if (multi) onPath(paths);
     else onPath(paths[0]);
   });

@@ -1,13 +1,30 @@
 #!/usr/bin/env bash
 # Launcher for dolby-tool — uses uv (no manual venv management needed).
 # uv automatically creates/updates the venv from pyproject.toml on each run.
+#
+# Usage:
+#   ./dolby-tool           start server + open browser
+#   ./dolby-tool stop      kill any running instance on port 7878
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Sanity check
+PORT=7878
+
+# -- stop subcommand --------------------------------------------------------
+if [ "${1:-}" = "stop" ]; then
+  pid=$(lsof -ti TCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)
+  if [ -n "$pid" ]; then
+    kill "$pid" && echo "[dolby-tool] Stopped (pid $pid)."
+  else
+    echo "[dolby-tool] Nothing running on port $PORT."
+  fi
+  exit 0
+fi
+
+# -- sanity checks ----------------------------------------------------------
 command -v uv >/dev/null 2>&1 || {
   echo "[dolby-tool] ERROR: uv not found. Install with: curl -LsSf https://astral.sh/uv/install.sh | sh" >&2
   exit 1
@@ -17,7 +34,16 @@ command -v ffprobe >/dev/null 2>&1 || {
   echo "[dolby-tool] WARNING: ffprobe not found. Install with: brew install ffmpeg" >&2
 }
 
-# Open browser after a short delay
-( sleep 1 && open "http://localhost:7878" ) &
+# -- open browser after a short delay ---------------------------------------
+# Prefer Chrome/Brave — Safari HTTPS-Only mode blocks http://localhost
+( sleep 1
+  if [ -d "/Applications/Google Chrome.app" ]; then
+    open -a "Google Chrome" "http://localhost:$PORT"
+  elif [ -d "/Applications/Brave Browser.app" ]; then
+    open -a "Brave Browser" "http://localhost:$PORT"
+  else
+    open "http://localhost:$PORT"
+  fi
+) &
 
 exec uv run dolby-tool "$@"

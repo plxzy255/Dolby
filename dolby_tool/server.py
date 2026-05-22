@@ -100,6 +100,26 @@ async def api_pick(multi: bool = False) -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
+# find by name — drag-drop fallback (Chrome gives File objects, not file:// URIs)
+
+
+@app.get("/api/find")
+async def api_find(name: str) -> JSONResponse:
+    """Spotlight search by display name — resolves a dropped filename to an absolute path."""
+    try:
+        result = subprocess.run(
+            ["mdfind", f"kMDItemDisplayName == '{name}'"],
+            capture_output=True, text=True, timeout=5,
+        )
+        paths = [p.strip() for p in result.stdout.splitlines() if p.strip()]
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        paths = []
+    exts = {".mp4", ".m4v", ".mkv", ".mov", ".ts"}
+    paths = [p for p in paths if Path(p).suffix.lower() in exts][:20]
+    return JSONResponse({"name": name, "paths": paths})
+
+
+# ---------------------------------------------------------------------------
 # directory listing — used by Compare tab to pull all media in a folder
 
 
