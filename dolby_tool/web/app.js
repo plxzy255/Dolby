@@ -111,6 +111,10 @@ function rendererVerdictLabel(r) {
     text: 'App-level spatial rendering active',
     className: 'good',
   };
+  if (r.verdict === 'app_spatial_rendering_was_active') return {
+    text: 'App-level spatial rendering was observed, but the last flag is false',
+    className: 'warn',
+  };
   if (r.verdict === 'lower_level_active_app_spatial_false') return {
     text: 'Atmos/spatial machinery active, but app-level spatial rendering flag is false',
     className: 'warn',

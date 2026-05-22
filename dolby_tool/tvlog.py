@@ -737,6 +737,11 @@ def _renderer_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
     if summary.get("app_spatial_rendering_last_state") is True:
         summary["verdict"] = "app_spatial_rendering_active"
     elif (
+        summary.get("app_spatial_rendering_ever_true") is True
+        and summary.get("app_spatial_rendering_last_state") is False
+    ):
+        summary["verdict"] = "app_spatial_rendering_was_active"
+    elif (
         summary.get("app_spatial_rendering_last_state") is False
         and summary["lower_level_spatialization_active"]
     ):

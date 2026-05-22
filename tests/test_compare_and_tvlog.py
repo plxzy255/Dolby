@@ -350,6 +350,34 @@ def test_renderer_hints_parse_hls_spatial_lines():
     assert renderer["spatial_rendering_changed_count"] == 1
 
 
+def test_renderer_verdict_handles_app_spatial_true_then_false():
+    lines = [
+        (
+            "2026-05-22 17:51:18.292 Df TV[12389:1dd6aa] [com.apple.TV:ampplay] "
+            "play> cm>> mediaFormatinfo '<private>' , audioCapabilities: 0x8 -> 0x1, "
+            "0x8 -> 0x1, asbdFormatID = qc+3, Dolby Atmos, asbdNumChannels = 16, "
+            "asbdSampleRate = 48.0 kHz, is rendering spatial audio"
+        ),
+        (
+            "2026-05-22 17:51:19.292 Df TV[12389:1dd6aa] [com.apple.TV:ampplay] "
+            "play> cm>> mediaFormatinfo '<private>' , audioCapabilities: 0x8 -> 0x1, "
+            "0x8 -> 0x1, asbdFormatID = qc+3, Dolby Atmos, asbdNumChannels = 16, "
+            "asbdSampleRate = 48.0 kHz, is not rendering spatial audio"
+        ),
+    ]
+    events = [_parse_line(line) for line in lines]
+    assert all(event is not None for event in events)
+
+    capture = LogCapture()
+    capture.events = [event for event in events if event is not None]
+    renderer = capture.summarize()["playback"]["renderer_evidence"]
+
+    assert renderer["app_spatial_rendering_ever_true"] is True
+    assert renderer["app_spatial_rendering_last_state"] is False
+    assert renderer["lower_level_spatialization_active"] is False
+    assert renderer["verdict"] == "app_spatial_rendering_was_active"
+
+
 def test_capture_quality_notes_likely_missed_audio_init():
     events = [
         _parse_line("CODEC_TYPE qdh1 (HW decoder)"),
