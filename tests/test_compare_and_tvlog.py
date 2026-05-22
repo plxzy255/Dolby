@@ -274,9 +274,23 @@ def test_renderer_hints_parse_local_spatial_lines():
 
     capture = LogCapture()
     capture.events = [event for event in events if event is not None]
-    renderer = capture.summarize()["playback"]["renderer_evidence"]
+    playback = capture.summarize()["playback"]
+    renderer = playback["renderer_evidence"]
 
+    assert playback["capture_quality"]["label"] == "complete"
+    assert playback["capture_quality"]["likely_missed_audio_init"] is False
     assert renderer["routes"] == ["built-in speakers"]
+    assert renderer["route_capability_label"] == "built-in speakers"
+    assert renderer["app_spatial_rendering_ever_true"] is False
+    assert renderer["app_spatial_rendering_last_state"] is False
+    assert renderer["spatial_power_active"] is True
+    assert renderer["head_tracking_active"] is False
+    assert renderer["atmos_decoder_active"] is True
+    assert renderer["oar_mode_active"] is True
+    assert renderer["mixer_content_spatializable"] is True
+    assert renderer["mixer_spatialization_statuses"] == [2]
+    assert renderer["lower_level_spatialization_active"] is True
+    assert renderer["verdict"] == "lower_level_active_app_spatial_false"
     assert renderer["media_formatinfo"] == [
         {
             "format": "ec+3",
@@ -323,11 +337,63 @@ def test_renderer_hints_parse_hls_spatial_lines():
 
     capture = LogCapture()
     capture.events = [event for event in events if event is not None]
-    renderer = capture.summarize()["playback"]["renderer_evidence"]
+    playback = capture.summarize()["playback"]
+    renderer = playback["renderer_evidence"]
 
+    assert playback["capture_quality"]["label"] == "complete"
+    assert renderer["app_spatial_rendering_ever_true"] is True
+    assert renderer["app_spatial_rendering_last_state"] is True
+    assert renderer["lower_level_spatialization_active"] is False
+    assert renderer["verdict"] == "app_spatial_rendering_active"
     assert renderer["media_formatinfo"][0]["format"] == "qc+3"
     assert renderer["media_formatinfo"][0]["rendering_spatial_audio"] is True
     assert renderer["spatial_rendering_changed_count"] == 1
+
+
+def test_renderer_verdict_handles_app_spatial_true_then_false():
+    lines = [
+        (
+            "2026-05-22 17:51:18.292 Df TV[12389:1dd6aa] [com.apple.TV:ampplay] "
+            "play> cm>> mediaFormatinfo '<private>' , audioCapabilities: 0x8 -> 0x1, "
+            "0x8 -> 0x1, asbdFormatID = qc+3, Dolby Atmos, asbdNumChannels = 16, "
+            "asbdSampleRate = 48.0 kHz, is rendering spatial audio"
+        ),
+        (
+            "2026-05-22 17:51:19.292 Df TV[12389:1dd6aa] [com.apple.TV:ampplay] "
+            "play> cm>> mediaFormatinfo '<private>' , audioCapabilities: 0x8 -> 0x1, "
+            "0x8 -> 0x1, asbdFormatID = qc+3, Dolby Atmos, asbdNumChannels = 16, "
+            "asbdSampleRate = 48.0 kHz, is not rendering spatial audio"
+        ),
+    ]
+    events = [_parse_line(line) for line in lines]
+    assert all(event is not None for event in events)
+
+    capture = LogCapture()
+    capture.events = [event for event in events if event is not None]
+    renderer = capture.summarize()["playback"]["renderer_evidence"]
+
+    assert renderer["app_spatial_rendering_ever_true"] is True
+    assert renderer["app_spatial_rendering_last_state"] is False
+    assert renderer["lower_level_spatialization_active"] is False
+    assert renderer["verdict"] == "app_spatial_rendering_was_active"
+
+
+def test_capture_quality_notes_likely_missed_audio_init():
+    events = [
+        _parse_line("CODEC_TYPE qdh1 (HW decoder)"),
+        _parse_line("CODEC_TYPE qdh1 (HW decoder), DecodedPixelBuffer: &xv0, 3840 x 1606"),
+    ]
+    assert all(event is not None for event in events)
+
+    capture = LogCapture()
+    capture.events = [event for event in events if event is not None]
+    playback = capture.summarize()["playback"]
+
+    assert "audio" not in playback
+    assert "renderer_evidence" not in playback
+    assert playback["capture_quality"]["label"] == "likely missed audio init"
+    assert playback["capture_quality"]["likely_missed_audio_init"] is True
+    assert "no audio or renderer evidence" in playback["capture_quality"]["note"]
 
 
 def test_compare_uses_custom_weights(monkeypatch):
