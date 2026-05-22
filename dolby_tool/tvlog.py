@@ -189,6 +189,56 @@ def _float(v: Any) -> float | None:
         return None
 
 
+def _audio_summary(event: dict[str, Any]) -> dict[str, Any]:
+    audio_format = (event.get("format") or "").lower()
+    is_known_atmos = audio_format in {"ec+3", "ec-3", "ec3"} and event.get("spatialization") == "yes"
+    summary = {
+        "format": event.get("format"),
+        "channels": event.get("channels"),
+        "sample_rate": event.get("sample_rate"),
+        "spatialization": event.get("spatialization"),
+        "spatialization_eligible": event.get("spatialization_eligible"),
+        "decodable": event.get("decodable"),
+        "is_atmos": is_known_atmos,
+    }
+    if audio_format == "qc+3":
+        summary["diagnosis"] = (
+            "Audio format 'qc+3' was reported as decodable by TV.app. "
+            "Preserving it as an unknown Dolby-like Apple/QuickTime path, not confirmed Atmos."
+        )
+    return summary
+
+
+def _audio_key(event: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        event.get("format"),
+        event.get("channels"),
+        event.get("sample_rate"),
+        event.get("spatialization"),
+        event.get("spatialization_eligible"),
+        event.get("decodable"),
+    )
+
+
+def _audio_rank(event: dict[str, Any]) -> tuple[int, int, int]:
+    audio_format = (event.get("format") or "").lower()
+    channels = event.get("channels") or 0
+    if audio_format in {"ec+3", "ec-3", "ec3", "qc+3"} and channels >= 16:
+        tier = 5
+    elif audio_format in {"ec+3", "ec-3", "ec3"} and channels > 2:
+        tier = 4
+    elif audio_format == "qc+3" and channels > 2:
+        tier = 4
+    elif audio_format in {"ac-3", "ac3"} and channels > 2:
+        tier = 3
+    elif audio_format in {"qaac", "aac"} and channels <= 2:
+        tier = 1
+    else:
+        tier = 2 if channels > 2 else 0
+    decodable = 1 if event.get("decodable") is True else 0
+    return (tier, channels, decodable)
+
+
 # ---------------------------------------------------------------------------
 
 
@@ -303,6 +353,17 @@ class LogCapture:
 
         audio_events = [e for e in self.events if e["kind"] == "audio_format"]
         last_audio = audio_events[-1] if audio_events else None
+        best_audio = max(audio_events, key=_audio_rank) if audio_events else None
+        observed_audio: list[dict[str, Any]] = []
+        observed_audio_by_key: dict[tuple[Any, ...], dict[str, Any]] = {}
+        for audio_event in audio_events:
+            key = _audio_key(audio_event)
+            if key not in observed_audio_by_key:
+                item = _audio_summary(audio_event)
+                item["count"] = 0
+                observed_audio_by_key[key] = item
+                observed_audio.append(item)
+            observed_audio_by_key[key]["count"] += 1
 
         file_events = [e for e in self.events if e["kind"] == "file_player"]
         last_file = file_events[-1] if file_events else None
@@ -334,22 +395,11 @@ class LogCapture:
                     f"{last_codec['width']}x{last_codec['height']}"
                 )
         if last_audio:
-            audio_format = (last_audio.get("format") or "").lower()
-            is_known_atmos = audio_format in {"ec+3", "ec-3", "ec3"} and last_audio.get("spatialization") == "yes"
-            playback["audio"] = {
-                "format": last_audio.get("format"),
-                "channels": last_audio.get("channels"),
-                "sample_rate": last_audio.get("sample_rate"),
-                "spatialization": last_audio.get("spatialization"),
-                "spatialization_eligible": last_audio.get("spatialization_eligible"),
-                "decodable": last_audio.get("decodable"),
-                "is_atmos": is_known_atmos,
-            }
-            if audio_format == "qc+3":
-                playback["audio"]["diagnosis"] = (
-                    "Audio format 'qc+3' was reported as decodable by TV.app. "
-                    "Preserving it as an unknown Dolby-like Apple/QuickTime path, not confirmed Atmos."
-                )
+            playback["audio"] = _audio_summary(last_audio)
+        if best_audio:
+            playback["best_audio"] = _audio_summary(best_audio)
+        if observed_audio:
+            playback["observed_audio"] = observed_audio
         if last_file:
             playback["file_player"] = last_file
 

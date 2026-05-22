@@ -60,6 +60,28 @@ function tvDecodedFourccClass(fourcc) {
   return 'neutral';
 }
 
+function audioLabel(audio) {
+  if (!audio) return '—';
+  const parts = [
+    audio.format,
+    audio.channels ? `ch=${audio.channels}` : null,
+    audio.sample_rate ? `${audio.sample_rate} Hz` : null,
+    audio.spatialization ? `spat=${audio.spatialization}` : null,
+    audio.decodable === true ? 'decodable' : audio.decodable === false ? 'not decodable' : null,
+  ].filter(Boolean);
+  return parts.length ? parts.join(' ') : '—';
+}
+
+function audioPillClass(audio) {
+  const format = (audio?.format || '').toLowerCase();
+  const channels = audio?.channels || 0;
+  if (['ec+3', 'ec-3', 'ec3'].includes(format) && channels >= 16) return 'good';
+  if (format === 'qc+3' && channels >= 16) return 'warn';
+  if (channels > 2) return 'good';
+  if (['qaac', 'aac'].includes(format) && channels <= 2) return 'neutral';
+  return 'neutral';
+}
+
 // Last directory successfully resolved — passed as hint to /api/find so the
 // find(1) fallback searches there first (useful for external volumes Spotlight skips).
 let _lastResolvedDir = '';
@@ -651,6 +673,9 @@ function renderCaptureSummary(summary) {
   else if (p.dolby_vision_active === false) pills.appendChild(el('span', { class: 'pill bad' }, 'Dolby Vision NOT active'));
   else if (p.dv_label) pills.appendChild(el('span', { class: 'pill warn' }, p.dv_label));
   if (p.audio && p.audio.is_atmos) pills.appendChild(el('span', { class: 'pill good' }, 'Atmos'));
+  if (p.best_audio && audioLabel(p.best_audio) !== audioLabel(p.audio)) {
+    pills.appendChild(el('span', { class: `pill ${audioPillClass(p.best_audio)}` }, `Best audio: ${audioLabel(p.best_audio)}`));
+  }
   card.appendChild(pills);
 
   if (p.dv_diagnosis) {
@@ -667,19 +692,34 @@ function renderCaptureSummary(summary) {
   if (p.video_fourcc) g.appendChild(kv('HLS video', p.video_fourcc));
   if (p.audio_codec) g.appendChild(kv('HLS audio', p.audio_codec));
   if (p.audio) {
-    g.appendChild(kv('Audio format', p.audio.format));
-    g.appendChild(kv('Audio channels', p.audio.channels));
-    g.appendChild(kv('Sample rate', p.audio.sample_rate ? `${p.audio.sample_rate} Hz` : null));
-    g.appendChild(kv('Spatialization', p.audio.spatialization));
-    g.appendChild(kv('Atmos eligible', p.audio.spatialization_eligible));
+    g.appendChild(kv('Current audio', audioLabel(p.audio), audioPillClass(p.audio)));
+    g.appendChild(kv('Current channels', p.audio.channels));
+    g.appendChild(kv('Current sample rate', p.audio.sample_rate ? `${p.audio.sample_rate} Hz` : null));
+    g.appendChild(kv('Current spatialization', p.audio.spatialization));
+    g.appendChild(kv('Current Atmos eligible', p.audio.spatialization_eligible));
     if (p.audio.decodable != null) g.appendChild(kv('Decodable', p.audio.decodable ? 'yes' : 'no', p.audio.decodable ? 'good' : 'bad'));
     if (p.audio.diagnosis) g.appendChild(kv('Audio diagnosis', p.audio.diagnosis, 'warn'));
+  }
+  if (p.best_audio) {
+    g.appendChild(kv('Best observed audio', audioLabel(p.best_audio), audioPillClass(p.best_audio)));
   }
   if (p.file_player) {
     g.appendChild(kv('File codec', p.file_player.codec));
     g.appendChild(kv('Encryption scheme', p.file_player.encryption_scheme));
   }
   card.appendChild(g);
+
+  if (p.observed_audio && p.observed_audio.length) {
+    card.appendChild(el('h3', {}, 'Observed audio formats'));
+    const list = el('div', { class: 'audio-observed' });
+    p.observed_audio.forEach((audio) => {
+      list.appendChild(el('div', { class: 'audio-observed-item' },
+        el('span', { class: `pill ${audioPillClass(audio)}` }, audioLabel(audio)),
+        audio.count > 1 ? el('span', { class: 'event-count' }, `${audio.count}x`) : null,
+      ));
+    });
+    card.appendChild(list);
+  }
 
   // Raw event log
   card.appendChild(el('details', {}, el('summary', {}, `All ${summary.event_count} events`), el('pre', {}, JSON.stringify(summary.events, null, 2))));

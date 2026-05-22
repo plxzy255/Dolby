@@ -50,6 +50,50 @@ def test_qdh1_cloud_capture_is_recognized_but_not_confirmed_dv():
     assert playback["audio"]["decodable"] is True
     assert playback["audio"]["is_atmos"] is False
     assert "unknown Dolby-like" in playback["audio"]["diagnosis"]
+    assert playback["best_audio"]["format"] == "qc+3"
+    assert playback["observed_audio"] == [{**playback["audio"], "count": 1}]
+
+
+def test_tv_capture_keeps_current_best_and_observed_audio():
+    lines = [
+        "CODEC_TYPE qdh1 (HW decoder)",
+        "AUDIO_FORMAT ec+3 is decodable ch=16",
+        "AUDIO_FORMAT qaac is decodable ch=2",
+        "AUDIO_FORMAT qaac is decodable ch=2",
+    ]
+    events = [_parse_line(line) for line in lines]
+    assert all(event is not None for event in events)
+
+    capture = LogCapture()
+    capture.events = [event for event in events if event is not None]
+    playback = capture.summarize()["playback"]
+
+    assert playback["audio"]["format"] == "qaac"
+    assert playback["audio"]["channels"] == 2
+    assert playback["best_audio"]["format"] == "ec+3"
+    assert playback["best_audio"]["channels"] == 16
+    assert playback["observed_audio"] == [
+        {
+            "format": "ec+3",
+            "channels": 16,
+            "sample_rate": None,
+            "spatialization": None,
+            "spatialization_eligible": None,
+            "decodable": True,
+            "is_atmos": False,
+            "count": 1,
+        },
+        {
+            "format": "qaac",
+            "channels": 2,
+            "sample_rate": None,
+            "spatialization": None,
+            "spatialization_eligible": None,
+            "decodable": True,
+            "is_atmos": False,
+            "count": 2,
+        },
+    ]
 
 
 def test_compare_uses_custom_weights(monkeypatch):

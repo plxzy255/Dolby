@@ -386,6 +386,27 @@ tr.best-row td:first-child::before {
   font-size: 10px;
   font-weight: 700;
 }
+.audio-observed {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+.audio-observed-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.audio-observed-item .event-count {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+}
 .event .kind.hls_variant { background: rgba(79, 158, 255, 0.25); color: #8ec0ff; }
 .event .kind.codec_type { background: rgba(76, 208, 122, 0.25); color: #8de4a8; }
 .event .kind.audio_format { background: rgba(255, 209, 102, 0.25); color: #ffd166; }
