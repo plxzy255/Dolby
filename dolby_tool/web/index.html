@@ -12,6 +12,7 @@
   <nav class="tabs">
     <button class="tab active" data-tab="inspect">Inspect</button>
     <button class="tab" data-tab="compare">Compare</button>
+    <button class="tab" data-tab="convert">Convert</button>
     <button class="tab" data-tab="capture">TV Capture</button>
   </nav>
 </header>
@@ -65,6 +66,70 @@
 
     <ul id="compare-list" class="file-list"></ul>
     <div id="compare-result" class="result"></div>
+  </section>
+
+  <!-- ============================================================= -->
+  <!-- Convert tab                                                    -->
+  <!-- ============================================================= -->
+  <section id="tab-convert" class="panel">
+    <div class="dropzone">
+      <p>MKV/MP4/MOV → Apple-TV-ready .m4v. Stream-copy mux, bit-exact. Optional Apple TV metadata + season artwork stamp.</p>
+      <div class="row">
+        <input type="text" id="convert-input" placeholder="Source file (.mkv / .mp4)" spellcheck="false" />
+        <button class="btn" id="convert-pick-input">Browse…</button>
+      </div>
+      <div class="row">
+        <input type="text" id="convert-output" placeholder="Output .m4v path" spellcheck="false" />
+      </div>
+      <div class="row">
+        <label><input type="checkbox" id="convert-overwrite"> Overwrite</label>
+        <label><input type="checkbox" id="convert-skip-pgs"> Skip PGS→VobSub</label>
+        <label><input type="checkbox" id="convert-no-metadata" checked> Skip Apple TV metadata</label>
+      </div>
+      <div class="row">
+        <input type="text" id="convert-metadata-id" placeholder="Apple TV id (optional, e.g. umc.cmc…)" spellcheck="false" />
+        <input type="text" id="convert-storefront" placeholder="US" value="US" style="max-width:5em" spellcheck="false" />
+      </div>
+      <div class="row">
+        <input type="text" id="convert-show" placeholder="Show name override (TV mode)" spellcheck="false" />
+        <input type="number" id="convert-season" placeholder="Season" style="max-width:7em" />
+        <input type="number" id="convert-episode" placeholder="Episode" style="max-width:7em" />
+      </div>
+      <div class="row">
+        <input type="text" id="convert-artwork" placeholder="Season-artwork image path (optional)" spellcheck="false" />
+        <button class="btn" id="convert-pick-artwork">Browse…</button>
+      </div>
+      <div class="row">
+        <button class="btn primary" id="convert-go">Convert</button>
+      </div>
+    </div>
+    <div id="convert-result" class="result"></div>
+
+    <h3 style="margin-top:2em">Tag existing file or season folder</h3>
+    <div class="dropzone">
+      <p>Apply metadata and/or stamp a season-cover image onto an already-muxed .m4v, or onto every episode in a directory.</p>
+      <div class="row">
+        <input type="text" id="tag-file" placeholder="File or directory (e.g. Season 5/)" spellcheck="false" />
+        <button class="btn" id="tag-pick-file">Browse…</button>
+      </div>
+      <div class="row">
+        <input type="text" id="tag-metadata-id" placeholder="Apple TV id (optional)" spellcheck="false" />
+        <input type="text" id="tag-storefront" placeholder="US" value="US" style="max-width:5em" spellcheck="false" />
+      </div>
+      <div class="row">
+        <input type="text" id="tag-show" placeholder="Show name override" spellcheck="false" />
+        <input type="number" id="tag-season" placeholder="Season" style="max-width:7em" />
+        <input type="number" id="tag-episode" placeholder="Episode" style="max-width:7em" />
+      </div>
+      <div class="row">
+        <input type="text" id="tag-artwork" placeholder="Season-artwork image (jpg/png)" spellcheck="false" />
+        <button class="btn" id="tag-pick-artwork">Browse…</button>
+      </div>
+      <div class="row">
+        <button class="btn primary" id="tag-go">Tag</button>
+      </div>
+    </div>
+    <div id="tag-result" class="result"></div>
   </section>
 
   <!-- ============================================================= -->
