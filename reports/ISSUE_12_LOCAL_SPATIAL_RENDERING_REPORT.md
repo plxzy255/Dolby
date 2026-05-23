@@ -209,13 +209,19 @@ File-level variants are not expected to change TV.app behavior unless they make 
 - TV.app arbitrary local-HLS launch controls:
   - `http`, `itls`, `itlss`, `itvls`, and `itvlss` did not fetch from the
     localhost server and produced no playback events
+- Safari local-HLS launch controls:
+  - direct `master.m3u8` navigation and a minimal same-origin HTML
+    `<video src="master.m3u8">` page created Safari failed-page tabs
+  - `tvlog-capture --profile local-player` recorded 0 playback events
+  - this is a launch/load failure, not evidence about Safari Atmos decode
+    or spatialization behavior
 
 ## What remains to test
 
 - Controlled listening A/B between TV.app local file, QuickTime local file, and
   QuickTime local HTTP HLS.
-- Optional Safari local HTTP HLS follow-up with a broader non-TV.app capture
-  predicate.
+- Optional Safari follow-up only if the local HTTP page-load failure is
+  solved first.
 - MOV remux.
 - M4V copy/remux.
 - MP4/M4V faststart rebuild.
@@ -284,6 +290,7 @@ These match the focus areas in #10, #6, #4 and add parser hooks from the QuickTi
 - [x] QuickTime Player local-file control captured; still FigFilePlayer/ec+3 but with stronger lower-level CoreAudio spatialization evidence.
 - [x] QuickTime Player local-HLS control captured; FigStreamPlayer with Atmos/CoreAudio spatial mixer evidence.
 - [x] QuickTime Player local-HLS path reproduced with merged `hls-prepare`, `hls-serve`, and `tvlog-capture --profile local-player` tooling.
+- [x] Safari local-HLS launch attempted; current result is failed-page tabs and 0 playback events, so Safari remains unproven rather than a working path.
 - [ ] At least one local-file container/remux variant tested. Not completed yet.
 - [x] Local HLS packaging test completed for QuickTime; TV.app URL-scheme launch did not work.
 - [x] Report distinguishes app-level spatial rendering from lower-level spatial / Atmos evidence.

@@ -928,6 +928,34 @@ and strong CoreAudio Atmos/spatial mixer evidence without TV.app and without a
 custom player app. It does not answer the narrower TV.app-local question,
 because QuickTime does not emit TV.app's `ampplay mediaFormatinfo` flag.
 
+Safari/WebKit was tested next against the same prepared HLS folder as a
+separate Apple-native local playback surface. Two launch forms were tried:
+direct playlist navigation and a minimal same-origin HTML page containing
+`<video controls autoplay src="master.m3u8">`.
+
+```text
+http://127.0.0.1:8766/master.m3u8
+http://127.0.0.1:8766/player.html
+http://127.0.0.1:8767/player.html
+http://localhost:8767/player.html
+```
+
+Safari created failed-page tabs (`safari-resource:/ErrorPage.html`) for
+these URLs. The WebKit networking process opened a localhost TCP
+connection, but the server did not receive a Safari `GET` for the HTML
+page, and both local-player captures recorded 0 playback events:
+
+```text
+captures/alt_paths/20260523_safari_local_hls.json
+captures/alt_paths/20260523_safari_local_hls_video_html.json
+```
+
+Current Safari verdict: this is a launch/load failure on this machine, not
+evidence about Safari's Atmos decoder or spatialization behavior. Safari
+is therefore not a proven local-HLS workaround yet; QuickTime remains the
+only observed Apple-native local-HLS path that actually played and emitted
+FigStreamPlayer/Atmos evidence.
+
 Tooling follow-up: `dolby-tool tvlog-parse` now parses saved compact raw logs
 into the normal structured capture summary, and
 `dolby-tool tvlog-capture --profile local-player` uses a broader
