@@ -416,6 +416,49 @@ TV.app's own choice of `spatialPreference` value passed to
 `mpc_updateAVAudioSpatializationFormatsForPlayerAudioFormat:` for
 local-file items.
 
+### TV.app hook / patch feasibility with SIP enabled
+
+The behavioral finding above does **not** imply that TV.app can be
+practically patched on a normal SIP-enabled system.
+
+Local checks on the same machine showed:
+
+- `csrutil status`: `System Integrity Protection status: enabled.`
+- `csrutil authenticated-root status`: `Authenticated Root status:
+  enabled.`
+- `/` is mounted `sealed` and `read-only`.
+- `/System/Applications/TV.app` and its executable are marked
+  `restricted`.
+- TV.app's code signature has `flags=0x12000(library-validation,runtime)`
+  and `Platform identifier=26`.
+- TV.app does not carry a `disable-library-validation` entitlement.
+
+That combination blocks the normal non-invasive hook routes:
+
+| Route | SIP-enabled result |
+| --- | --- |
+| Modify `/System/Applications/TV.app` on disk | blocked by sealed read-only system volume, restricted file flags, and code-signing |
+| Patch/re-sign a copy as TV.app | loses Apple platform signature/private entitlements and is not the same TV.app product path |
+| `DYLD_INSERT_LIBRARIES` / dylib injection | blocked for protected Apple/platform binaries, and by hardened-runtime library validation |
+| Frida / LLDB / task-port patching | not a reliable full-SIP path for an Apple platform binary; the earlier DTrace work already required disabling debug/DTrace SIP restrictions |
+| `defaults` preference override | no observed preference key maps to the local-file `spatialPreference` call site |
+
+TV.app strings do expose preference names such as
+`downloadDolbyAtmos`, `downloadMultichannel`,
+`preferredDolbyAtmosPlaySetting`, and `multichannelAudioStrategy`,
+plus log strings for `AVCFPlayerSetMultichannelAudioStrategy`.
+Those are worth knowing about, but they do not currently provide a
+documented or observed override for
+`mpc_updateAVAudioSpatializationFormatsForPlayerAudioFormat:
+spatialPreference:` on local-file items.
+
+Conclusion: with full SIP and authenticated root enabled, a practical
+TV.app hook/patch of the local-file spatial preference is **not
+available**. Doing this as an actual TV.app patch would require
+weakening SIP/debug/library-validation protections or modifying the
+sealed system/app signature path, which is outside the current
+TV.app/downloaded-content/local-playback solution path.
+
 ### Updated gate model
 
 The TV.app capture above identified the AVF-layer intersection as
@@ -600,6 +643,157 @@ appear without main playback settling on Atmos: the manifest advertises
 an Atmos-capable rendition, but the persistent package state does not
 contain a complete local Atmos stream for the normal selected playback.
 
+### Online Apple TV+ control capture
+
+An online control was run after the package inspection to separate
+title/service capability from downloaded-package completeness.
+
+First, the same `Grass Lands` item was started normally through
+TV.app's AppleScript-visible HLS media item while the download remained
+installed. That did **not** force online playback. It still resolved to
+the downloaded package:
+
+| Capture | Item | Download state | Delivery | Selected group | Runtime / renderer | Result |
+|---|---|---|---|---|---|---|
+| `captures/issue12_grass_lands_online_attempt_20260523_043238.json` | `Grass Lands` | downloaded | `downloaded_movpkg` | `audio-stereo-160_download-ap-aoc.tv.apple.com` | `qaac`/2ch; app spatial false | TV.app still chose the local complete stereo stream |
+
+Two non-destructive attempts were then made to force `Grass Lands`
+online without deleting the download. In both attempts, the package was
+temporarily renamed out of the way from a Terminal/tmux context with
+Movies access, and then restored in a `finally` block:
+
+| Capture | Method | Result |
+|---|---|---|
+| `captures/issue12_grass_lands_forced_online_20260523_043528.json` | play cached HLS media database item while package path was missing | TV.app failed lookup with `Can't get track 1 of library playlist 1 whose database ID = 56. (-1728)`; no playback events |
+| `captures/issue12_grass_lands_forced_online_url_20260523_043754.json` / `captures/issue12_grass_lands_forced_online_click_20260523_044103.json` | open Apple TV episode URL while package path was missing, then use keyboard/click UI controls | TV.app showed the episode page and Dolby Atmos badge, but playback stayed stopped; no HLS playback selection |
+
+That result means the current TV.app library state binds the downloaded
+`Grass Lands` episode to its local package. Hiding the package is not a
+clean way to make TV.app fall through to online playback; it leaves the
+episode in a broken "download expected" state until the package is
+restored.
+
+A different Apple TV+ Atmos episode from the same season, `Desert
+Lands`, was then opened by URL with no local download present. Its
+toolbar showed `Not Downloaded`, and playback started online. The
+capture confirmed that the service/title/route can select Atmos online:
+
+| Capture | Item | Download state | Delivery | Selected group | Runtime / renderer | Result |
+|---|---|---|---|---|---|---|
+| `captures/issue12_desert_lands_url_click_20260523_044429.json` | `Desert Lands` | not downloaded | `online_hls` | `audio-atmos_vod-ap-aoc.tv.apple.com` | `qc+3`/16ch; `mediaFormatinfo ... rendering spatial audio = true`; first true at 25.46s | online Apple TV+ selects Atmos and reaches app-level spatial rendering |
+
+Relevant parsed fields from that online control:
+
+```text
+pipeline_engine: FigStreamPlayer
+hls_delivery: online_hls
+selected_hls_audio_group: audio-atmos_vod-ap-aoc.tv.apple.com
+selected_hls_audio_group_kind: atmos
+allowedAudioSpatializationFormats: 0x7
+route: built-in speakers
+mediaFormatinfo: qaac/2ch false -> qc+3/16ch true
+mixer: qc+3 ch=16 content spatializable, status=2
+spatial_rendering_changed_count: 4
+app_spatial_rendering_ever_true: true
+app_spatial_rendering_last_state: true
+```
+
+This is now the clean contrast:
+
+- Apple TV+ **online HLS** for a not-downloaded Atmos episode can select
+  `audio-atmos_vod-*`, transition to `qc+3`/16ch, and reach app-level
+  spatial rendering true.
+- Apple TV+ **downloaded `.movpkg`** for `Grass Lands` uses the same
+  FigStreamPlayer family and permits multichannel, but its local
+  normal-English Atmos group is incomplete, so TV.app selects the
+  complete stereo `audio-stereo-160_download-*` group.
+
+### Ted Lasso downloaded `.movpkg` follow-up
+
+A second downloaded Apple TV+ title was inspected after the `Grass
+Lands` result:
+
+```text
+/Users/psp/Movies/TV/Media.localized/TV Shows/Ted Lasso/Season 1/The Hope That Kills You.movpkg
+```
+
+This package is useful because it initially appears to have an
+`audio-atmos_download-ap-aoc.tv.apple.com` stream marked
+`Complete=YES`. Raw stream location and segment counts change that
+interpretation: the complete Atmos stream belongs to an
+`InterstitialAssets/...movpkg` child package with only 2 media fragments,
+not to the main episode stream inventory.
+
+Relevant local package rows:
+
+| Stream / path | Group / name | Language | Role / accessibility | Codec / channels | Complete/downloaded status | Bytes / segments | Interpretation |
+|---|---|---|---|---|---|---|---|
+| `0-4482011-BELNUQV4ER6D7W2OC7FQFXZEEY5VMJF7` | main video | n/a | n/a | video | `Complete=YES` | 663,399,476 bytes; 493 `.frag`, 10 `.initfrag` | complete main episode video |
+| `1-4482011-5KHVNJOD7PS6MYKJKXGP43FGF5WJO6O6` | `audio-stereo-128_download-ap-aoc.tv.apple.com` / `English` | `en` | `com.apple.amp.tv.is-default`, `public.original-content` | `mp4a.40.2`, 2ch | `Complete=YES` | 31,684,679 bytes; 370 `.frag`, 10 `.initfrag` | complete main English stereo |
+| `InterstitialAssets/A4CIWHM67RY7B3N5W6OUQPVFN2JV3HSJ.movpkg/0-14238665-R465VTV4I6Q7OJZRBXKZRTXWVXCNITU7` | interstitial video | n/a | n/a | video | `Complete=YES` | 10,028,775 bytes; 2 `.frag`, 1 `.initfrag` | short interstitial/preroll asset |
+| `InterstitialAssets/A4CIWHM67RY7B3N5W6OUQPVFN2JV3HSJ.movpkg/1-14238665-4KUQGGFOY3RZ374YBMA4G4Q6RIROJZLK` | `audio-atmos_download-ap-aoc.tv.apple.com` | multiple languages in grouped manifest rows | includes normal and AD rows in grouped manifest table | `ec-3`, `16/JOC` | `Complete=YES`, but only inside the interstitial child package | 450,734 bytes; 2 `.frag`, 1 `.initfrag` | complete short interstitial Atmos, not complete main-episode Atmos |
+| referenced-only main manifest groups | `audio-ac3_download-ap-aoc.tv.apple.com`, `audio-atmos_download-ap-aoc.tv.apple.com`, `audio-ec3-stereo_download-ap-aoc.tv.apple.com`, other stereo groups | includes `English` and `English AD` rows | AD rows carry `public.accessibility.describes-video` | `ac-3`, `ec-3`, `mp4a.40.2` | no complete top-level main-episode audio stream found for these groups | no local main-episode media bytes/segments mapped | advertised alternatives, not complete local main audio |
+
+Search coverage for this package:
+
+```text
+files: 4863
+manifest-like files: 297
+StreamInfoBoot.xml: 96
+playlists: 101
+audio-atmos: 5
+audio-stereo: 5
+ec-3: 5
+mp4a.40.2: 5
+Complete>YES: 98
+download-ap-aoc: 197
+vod-ap-aoc: 0
+AD: 11
+description: 4
+accessibility: 4
+public.accessibility.describes-video: 4
+```
+
+A downloaded-playback capture was then run for the TV.app library item
+`The Hope That Kills You`:
+
+| Capture | Delivery | Selected group | Runtime / renderer | Result |
+|---|---|---|---|---|
+| `captures/issue12_ted_lasso_downloaded_20260523_045907.json` | `downloaded_movpkg` | `audio-stereo-128_download-ap-aoc.tv.apple.com` | selected variant `dvh1.05.01,mp4a.40.2`; `mediaFormatinfo` main playback `qaac`/2ch with app spatial false; transient `ec+3`/16ch mixer/decoder evidence also appeared | TV.app selected the complete local stereo stream for the main episode |
+
+This is the second downloaded-title data point supporting the
+package-content conclusion:
+
+> Highest Quality did not download a playable Atmos group for this
+> title/device/account/route. The Ted Lasso package advertises Atmos
+> alternates and contains a complete short interstitial Atmos stream,
+> but the main episode has complete local stereo and no complete
+> top-level main-episode Atmos stream. The stereo result is due to
+> downloaded package contents, not runtime selection of a complete
+> local Atmos group.
+
+The capture parser's generic `movpkg_atmos_variant_present_but_not_selected`
+verdict is accurate for log-visible HLS alternates, but too broad for
+package completeness. The follow-up tool now has a `.movpkg` inventory
+pass:
+
+```bash
+uv run python -m dolby_tool movpkg \
+  "/Users/psp/Movies/TV/Media.localized/TV Shows/Ted Lasso/Season 1/The Hope That Kills You.movpkg" \
+  --selected-group audio-stereo-128_download-ap-aoc.tv.apple.com
+```
+
+For Ted Lasso, that inventory verdict is:
+
+```text
+movpkg_atmos_variant_missing_or_incomplete
+```
+
+The inventory pass checks the selected group against
+`StreamInfoBoot.xml`, `Complete`, local media bytes, segment counts, and
+whether the matching stream is top-level main content or an
+`InterstitialAssets/...movpkg` child package.
+
 Clean downloaded-playback capture recipe:
 
 1. Disable network/Wi-Fi so playback must use the local download.
@@ -628,6 +822,18 @@ The parser now surfaces:
   `movpkg_figstreamplayer_selected_stereo`,
   `movpkg_atmos_variant_present_but_not_selected`, and
   `movpkg_atmos_variant_selected`
+
+Recommended next parser/tool extension:
+
+- The `.movpkg` inventory pass can emit
+  `movpkg_atmos_variant_missing_or_incomplete` when the log advertises
+  `audio-atmos_download-*` but the package lacks a complete top-level
+  main-content Atmos stream with local media bytes and segment files.
+- Keep the existing log-only verdicts, but label them as HLS alternate
+  selection verdicts. The Ted Lasso follow-up shows why log-visible
+  Atmos alternates are not enough: a complete Atmos stream can belong
+  to an interstitial child package while main episode playback still has
+  only complete stereo locally.
 
 The saved 03:22 capture now parses as:
 
