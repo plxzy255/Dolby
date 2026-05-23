@@ -1005,23 +1005,38 @@ was made directly reproducible from a normal local file via:
 ```bash
 uv run python -m dolby_tool hls-package \
   .tmp/remux_variants/blood_bone_clip_faststart.mp4 \
-  .tmp/hls_package_cli_check --overwrite
+  .tmp/hls_package_cli_autopatch --overwrite
 ```
 
-The generated `master.m3u8` uses an HLS audio group:
+One important compatibility detail surfaced during live testing:
+FFmpeg's bare split fMP4 master playlist failed in QuickTime with
+`CoreMediaErrorDomain error -12927` after fetching only `master.m3u8`,
+the video/audio playlists, and the video init segment. Adding the
+Apple-style HLS metadata fixed the load. The command now auto-patches
+the generated `master.m3u8` with an HLS audio group plus explicit
+`CODECS`, `VIDEO-RANGE`, `FRAME-RATE`, and Atmos channel metadata:
 
 ```text
-#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="group_audio",...URI="stream_English.m3u8"
-#EXT-X-STREAM-INF:...,AUDIO="group_audio"
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="group_audio",NAME="English",...
+  LANGUAGE="en",CHANNELS="6/JOC",URI="stream_English.m3u8",AUTOSELECT=YES
+#EXT-X-STREAM-INF:...,AUDIO="group_audio",FRAME-RATE=23.976,
+  CODECS="dvh1.05.06,ec-3",VIDEO-RANGE=PQ
 stream_video.m3u8
 ```
 
-`ffprobe` on the generated HLS master preserved the relevant source
-signals: video `dvh1`, audio `ec-3`, Dolby Digital Plus + Dolby Atmos,
-5.1(side), 576 kb/s. This is packaging evidence, not a new playback
-capture. The next live control is to serve that generated folder with
-`hls-serve --open quicktime` and capture with
-`tvlog-capture --profile local-player`.
+Clean live capture against the actual auto-patched CLI output:
+
+```text
+captures/alt_paths/20260523_quicktime_hls_package_autopatch_clean.json
+```
+
+Result: `source=hls`, `pipeline_engine=FigStreamPlayer`, selected HLS
+AudioGroup `group_audio`, AudioGroup kind `atmos`, source audio codec
+`ec-3`, current/best audio `ec+3 ch=16 48000 Hz spatialization=yes`,
+lower-level spatialization active, Atmos decoder active, OAR active,
+forced 7.1.4 Atmos, and AUSpatialMixer layouts `Atmos_7_1_4`, `Stereo`.
+This reproduces the earlier QuickTime local-HLS result from an ordinary
+local file without requiring a `.movpkg`.
 
 ## Bottom line (2026-05-23)
 
