@@ -193,6 +193,10 @@ what we already know.
 10. **Open in QuickTime via File → Open Location**
    - Tested with a locally served HLS package built from the user's Atmos
      source.
+   - The repeatable local-file workflow is now:
+     `dolby-tool hls-package <local media file> <folder>` ->
+     `dolby-tool hls-serve <folder> --open quicktime` ->
+     `dolby-tool tvlog-capture --profile local-player`.
    - Result: QuickTime accepted `http://127.0.0.1:8765/master.m3u8`, used
      FigStreamPlayer, selected the Atmos HLS group, decoded `ec+3` 16ch,
      forced a 7.1.4 Atmos decoder, and initialized `AUSpatialMixerV2` with
@@ -285,6 +289,11 @@ Execution update:
   QuickTime/Safari byterange requests; this is now repeatable via
   `dolby-tool hls-prepare <local.movpkg> .tmp/alt_hls --overwrite` followed by
   `dolby-tool hls-serve .tmp/alt_hls --open quicktime`.
+- Direct packaging from a normal local file is now available too:
+  `dolby-tool hls-package <local media file> <folder> --overwrite`
+  stream-copies the first video stream and selected audio stream into fMP4
+  HLS with a separate audio group by default, then the same `hls-serve`
+  QuickTime workflow applies.
 - TV.app did not open that arbitrary HLS URL through `http`, `itls`,
   `itlss`, `itvls`, or `itvlss`; it produced no playback events and made no
   localhost fetches.

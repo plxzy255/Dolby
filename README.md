@@ -59,8 +59,15 @@ uv run python -m dolby_tool tvlog-capture --profile local-player --seconds 60
 ```
 
 ### Local HLS Serve
-Flatten a simple persisted-HLS `.movpkg` into a normal HLS folder, then serve
-it with byte-range support for QuickTime/Safari tests:
+Package a normal local file into fMP4 HLS, then serve it with byte-range
+support for QuickTime/Safari tests:
+
+```bash
+uv run python -m dolby_tool hls-package "/path/to/local-atmos.mp4" .tmp/local_hls --overwrite
+uv run python -m dolby_tool hls-serve .tmp/local_hls --open quicktime
+```
+
+Or flatten a simple persisted-HLS `.movpkg` into the same served folder layout:
 
 ```bash
 uv run python -m dolby_tool hls-prepare "/path/to/Test.movpkg" .tmp/alt_hls --overwrite
@@ -69,7 +76,9 @@ uv run python -m dolby_tool hls-serve .tmp/alt_hls --open quicktime
 
 This is intentionally loopback-only by default. Use it for local-player
 controls where Python's basic `http.server` is not sufficient because the
-player requests `Range: bytes=...` media segments.
+player requests `Range: bytes=...` media segments. `hls-package` stream-copies
+the first video stream and the selected audio stream by default, preserving
+E-AC-3/Atmos when the input and Apple's player support it.
 
 ### `.movpkg` Inventory
 For downloaded TV.app packages, inspect local HLS manifests and stream inventories:
