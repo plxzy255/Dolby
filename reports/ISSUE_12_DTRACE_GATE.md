@@ -541,7 +541,7 @@ Follow-up constraints from the user:
   the Atmos group. It is not a presumed quality/Atmos selector.
 
 This removes "enable Highest Quality" as the unresolved fix. The
-unresolved question is narrower: **does the downloaded package contain
+remaining question was narrower: **does the downloaded package contain
 a complete playable Atmos AudioGroup, and if it does, why does TV.app
 select `audio-stereo-160_download-ap-aoc.tv.apple.com` for normal
 English playback?**
@@ -561,68 +561,44 @@ The package was later located at:
 /Users/psp/Movies/TV/Media.localized/TV Shows/Prehistoric Planet/Season 3/Grass Lands.movpkg
 ```
 
-macOS currently blocks the Codex process from reading the package
-contents directly (`Operation not permitted` under `~/Movies/TV`).
-Finder/AppleScript can enumerate item names, but direct reads of
-`root.xml`, `boot.xml`, playlists, and `StreamInfo*.xml` still fail
-without Full Disk Access for Codex. Because the readable manifest text
-is what maps stream folders to `audio-stereo-*`, `audio-atmos-*`,
-roles, codecs, and `Complete=YES`, this package cannot yet be used to
-prove Atmos completeness.
+After granting Terminal access to the package, the downloaded manifests
+and `StreamInfoBoot.xml` files were inspected. The package contains
+5293 files, 309 manifest-like files, 95 top-level streams, and six
+downloaded master playlists. The master playlists advertise all of
+these audio groups:
 
-Partial local inventory visible through Finder:
+- `audio-HE2-stereo-32_download-ap-aoc.tv.apple.com`
+- `audio-stereo-64_download-ap-aoc.tv.apple.com`
+- `audio-stereo-128_download-ap-aoc.tv.apple.com`
+- `audio-stereo-160_download-ap-aoc.tv.apple.com`
+- `audio-ac3_download-ap-aoc.tv.apple.com`
+- `audio-atmos_download-ap-aoc.tv.apple.com`
 
-| Package item | Visible local status | Interpretation |
-|---|---|---|
-| `root.xml` | present, 380 bytes | package root exists, but contents not readable yet |
-| `boot.xml` | present | package boot metadata exists, but contents not readable yet |
-| `Data/` | 6 `Playlist-*-master.m3u8` files, each 491,346 bytes, plus six 913-byte descriptors | master playlists are locally present, but contents not readable yet |
-| `0-4834137-AL4WNSYVTCHVNSPSM5EDIIOAAMMJEQAR/` | 602 items: 590 `.frag`, 9 `.initfrag`, one `.m3u8`, `StreamInfoBoot.xml`, `StreamInfoRoot.xml` | large populated media stream, identity unknown until manifest text is readable |
-| `1-4834137-ATP2X4XE2REC6Y7VVXWIN4RVIN5DZFSW/` | 428 items: 416 `.frag`, 9 `.initfrag`, one `.m3u8`, `StreamInfoBoot.xml`, `StreamInfoRoot.xml` | large populated media stream, identity unknown until manifest text is readable |
-| many `2-4834137-*` folders | usually 45-47 `.frag` files, one `.m3u8`, `StreamInfoBoot.xml`, `StreamInfoRoot.xml`, no `.initfrag`; several shorter 14-15 fragment folders | likely auxiliary/text/alternate streams, but exact language/role/codec requires manifest text |
-| `0-14294715-*`, `0-5964765-*`, `1-0-*` | smaller populated streams with `.frag`, `.initfrag`, `.m3u8`, and StreamInfo files | likely interstitial/preroll or auxiliary program streams, exact role unknown |
+Package-level stream mapping for the relevant English groups:
 
-The package is therefore definitely not an empty shell: it contains
-local master playlists, stream info files, and downloaded fragments.
-But the current package-level verdict is still **not** "Atmos is
-complete but TV.app ignored it"; it is:
+| Stream ID / source | Group / name | Language | Role / accessibility | Codec / channels | Complete/downloaded status | Bytes / segments | Interpretation |
+|---|---|---|---|---|---|---|---|
+| `1-4834137-ATP2X4XE2REC6Y7VVXWIN4RVIN5DZFSW` | `audio-stereo-160_download-ap-aoc.tv.apple.com` / `English` | `en` | `com.apple.amp.tv.is-default`, `public.original-content` | `mp4a.40.2`, `CHANNELS="2"` | `Complete=YES`; selected in playback log | 50,085,832 bytes, 416 `.frag`, playlist has `#EXT-X-ENDLIST` | complete local main English stereo |
+| `1-0-SAX5S27ZLUZKR5K34VF5C5TWWLVKQE5Z` | `audio-atmos_download-ap-aoc.tv.apple.com` / `English` | `en` | `com.apple.amp.tv.is-default`, `public.original-content` | master says `ec-3`, `CHANNELS="16/JOC"`; playlist URLs contain `audio_en_gr2448_mp4a-A6` | `Complete=NO`; `MediaBytesStored=0`; not selected | 10,198,971 bytes, only 30 `.frag`; playlist references 416 media entries | Atmos is referenced, but not a complete playable local stream |
+| `audio-ac3_download-ap-aoc.tv.apple.com` / `English` | `English` | `en` | `com.apple.amp.tv.is-default`, `public.original-content` | `ac-3`, `CHANNELS="6"` | referenced by master; no complete boot stream found in this package inventory | not complete in package inventory | 5.1 candidate is advertised but not downloaded as a complete local stream |
+| `audio-stereo-160_download-ap-aoc.tv.apple.com` / `English ` | `English AD` equivalent | `en` | `public.accessibility.describes-video` plus default/original flags | `mp4a.40.2`, `CHANNELS="2"` | referenced separately from normal English | not the selected normal-English capture | AD is Audio Description, not the desired quality selector |
+| `audio-atmos_download-ap-aoc.tv.apple.com` / `English ` | `English AD` equivalent | `en` | `public.accessibility.describes-video` plus default/original flags | `ec-3`, `CHANNELS="16/JOC"` | referenced in master, but its `g=2448` local stream is incomplete | incomplete | AD may also have an Atmos reference, but that does not make AD the desired normal-dialogue quality track |
 
-> TV.app downloaded `.movpkg` has the right FigStreamPlayer
-> infrastructure, a populated local package, and selected a downloaded
-> stereo AudioGroup despite Highest Quality. A transient `ec+3`/16ch
-> spatializable evaluation suggests an Atmos-capable variant/source may
-> exist, but local Atmos completeness is unverified until the package
-> manifests can be read. Next layer is package-manifest completeness and
-> TV.app selection policy / title-specific download behavior.
+The package-level verdict is therefore:
 
-Once Codex or Terminal has Full Disk Access for `~/Movies/TV`, inspect
-it directly:
+> Highest Quality did not download a complete playable Atmos group for
+> this title/device/account/route. TV.app downloaded `.movpkg` has the
+> right FigStreamPlayer infrastructure and the master playlist advertises
+> `audio-atmos_download-ap-aoc.tv.apple.com`, but the local Atmos stream
+> is `Complete=NO` with `MediaBytesStored=0` while the selected
+> `audio-stereo-160_download-ap-aoc.tv.apple.com` stream is complete.
+> The stereo result is due to downloaded package contents, not merely
+> runtime spatialization selection.
 
-```sh
-MOVPKG='/Users/psp/Movies/TV/Media.localized/TV Shows/Prehistoric Planet/Season 3/Grass Lands.movpkg'
-find "$MOVPKG" -maxdepth 4 \( -name boot.xml -o -name root.xml -o -name '*.m3u8' -o -name 'StreamInfoBoot.xml' \) -print
-rg -n 'audio-atmos|audio-stereo|ec-3|mp4a\.40\.2|Complete=YES|download-ap-aoc|vod-ap-aoc|AD|description|accessibility|public\.accessibility|describes-video' "$MOVPKG"
-find "$MOVPKG" -mindepth 1 -maxdepth 1 -type d -print0 |
-  while IFS= read -r -d '' d; do
-    printf '%s\tfiles=%s\tbytes=%s\n' \
-      "$(basename "$d")" \
-      "$(find "$d" -type f | wc -l | tr -d ' ')" \
-      "$(du -sk "$d" | awk '{print $1 * 1024}')"
-  done | sort
-```
-
-The inspection should answer:
-
-- `audio-atmos-*` present and `Complete=YES` with segment files:
-  TV.app downloaded `.movpkg` has local Atmos data, but TV.app policy
-  selected the stereo group despite Highest Quality.
-- `audio-atmos-*` referenced but incomplete/missing segment files:
-  Highest Quality did not download a playable Atmos group for this
-  title/device/account/route, so the stereo result is due to package
-  contents.
-- `English AD` maps to stereo: AD is not the desired quality track.
-- `English AD` maps to Atmos unexpectedly: audio picker labels are
-  misleading; document the mapping and retest.
+This also explains why the brief `ec+3`/16ch mixer evaluation could
+appear without main playback settling on Atmos: the manifest advertises
+an Atmos-capable rendition, but the persistent package state does not
+contain a complete local Atmos stream for the normal selected playback.
 
 Clean downloaded-playback capture recipe:
 
