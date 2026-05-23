@@ -847,6 +847,50 @@ downloaded_hls_verdict: movpkg_atmos_variant_present_but_not_selected
 current audio: qaac ch=2
 ```
 
+### Local HTTP HLS / QuickTime follow-up
+
+A local HLS package was built from the user's Atmos source and served from
+`.tmp/alt_hls` over `http://127.0.0.1:8765/master.m3u8`.
+
+Important setup detail: Python's basic `http.server` was not enough for this
+test because QuickTime/Safari need byte-range media requests. A Range-capable
+localhost server returned `206 Partial Content` for the fragmented media and
+allowed normal playback.
+
+TV.app was tested against the same local HLS URL through:
+
+```text
+http://127.0.0.1:8765/master.m3u8
+itls://127.0.0.1:8765/master.m3u8
+itlss://127.0.0.1:8765/master.m3u8
+itvls://127.0.0.1:8765/master.m3u8
+itvlss://127.0.0.1:8765/master.m3u8
+```
+
+Those TV.app attempts produced 0 relevant playback events and no localhost
+server fetches. Current verdict: TV.app's Live Stream URL schemes are not a
+practical arbitrary-local-HLS launch path in this form.
+
+QuickTime Player opened the same local HLS URL successfully. The broad raw
+capture at
+`captures/alt_paths/20260523_052228_quicktime_range_hls_raw.log` showed:
+
+```text
+FigAssetCreateWithURL ... <http // redacted ... // m3u8>
+<<<< FigStreamPlayer >>>> FigPlayerStreamCreateWithOptions
+FigAlternate ... [AudioGroup atmos] [dvh1.05.06,ec-3]
+AudioQueueNewOutput 16 ch, 48000 Hz, ec+3
+ACDDPAtmosDecoder ... mIsAtmos = 1, mIsOARMode = 1
+Forcing 7.1.4 decoder for Atmos
+AUSpatialMixerV2 ... Setting audio channel layout Atmos_7_1_4
+```
+
+Conclusion: QuickTime + local HTTP HLS with Range support is now the strongest
+observed Apple-native local playback alternative. It reaches FigStreamPlayer
+and strong CoreAudio Atmos/spatial mixer evidence without TV.app and without a
+custom player app. It does not answer the narrower TV.app-local question,
+because QuickTime does not emit TV.app's `ampplay mediaFormatinfo` flag.
+
 ## Bottom line (2026-05-23)
 
 - **For local-file Atmos playback with `is rendering spatial audio = true`
@@ -866,9 +910,10 @@ current audio: qaac ch=2
   by `codesign -d --entitlements -`). It is a product-level decision in
   the `spatialPreference` value chosen by TV.app inside
   `mpc_updateAVAudioSpatializationFormatsForPlayerAudioFormat:`. TV.app
-  cannot be patched in place; the only path to spatial-audio TV.app for
-  the same content remains the `.movpkg` route in
-  `ISSUE_12_CREATIVE_POSSIBILITIES.md` Tier A.
+  cannot be patched in place under normal SIP. The only remaining TV.app
+  path for the same content remains a TV.app-trusted `.movpkg` with a
+  complete main Atmos stream; outside TV.app, QuickTime local HTTP HLS is
+  now the strongest Apple-native workaround candidate.
 
 ## Raw trace excerpts
 

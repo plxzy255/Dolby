@@ -28,6 +28,14 @@ The TV.app evidence still supports this working model:
 
 The new QuickTime Player control does **not** falsify the FigFilePlayer/ec+3 model. QuickTime also uses **FigFilePlayer** and `ec+3`, not FigStreamPlayer or `qc+3`. However, QuickTime logs show stronger explicit lower-level CoreAudio spatialization than TV.app local summaries, including `AudioQueue ... spatialization enabled, client-controlled` and `AUSpatialMixerV2 ... spatialization algorithm = 7`.
 
+A later QuickTime Player local-HLS control does change the non-TV.app ranking:
+when the same local Atmos source was repackaged as HLS and served over a
+Range-capable localhost server, QuickTime used **FigStreamPlayer**, selected
+an Atmos HLS audio group, decoded `ec+3` 16ch, forced a 7.1.4 Atmos decoder,
+and initialized `AUSpatialMixerV2` with `Atmos_7_1_4`. This is not TV.app
+local playback, but it is a stronger Apple-native local alternative than the
+plain QuickTime local-file path.
+
 That means the safest current conclusion is:
 
 > Local files can engage Apple/CoreAudio Atmos and spatialization machinery, especially in QuickTime Player, but the specific TV.app app-level `mediaFormatinfo ... is rendering spatial audio` flag has only been observed on the HLS/qc+3 path so far.
@@ -110,6 +118,15 @@ QuickTime local file asset
   -> Atmos/OAR active
   -> AudioQueue/AUSpatialMixer spatialization active
   -> no observed qc+3 or TV.app mediaFormatinfo app-level flag
+
+QuickTime local HLS asset
+  -> FigStreamPlayer
+  -> HLS source advertises ec-3 Atmos
+  -> runtime/CoreAudio input label ec+3 16ch
+  -> Atmos/OAR active
+  -> AudioQueue forces 7.1.4 Atmos decoder
+  -> AUSpatialMixerV2 uses Atmos_7_1_4 input layout
+  -> no TV.app mediaFormatinfo app-level flag because this is not TV.app
 ```
 
 Important nuance: not every HLS capture necessarily reaches `qc+3` / app-level rendering true. A prior HLS-like run showed FigStreamPlayer with runtime `ec+3` and app-level spatial rendering false. That suggests the strongest predictor is probably the runtime/asbd path (`qc+3` vs `ec+3`), not simply `HLS` vs `local`.
@@ -124,7 +141,8 @@ File-level variants are not expected to change TV.app behavior unless they make 
 | HLS/streaming run with runtime `ec+3` | MacBook Pro Speakers | FigStreamPlayer | source `ec-3` / runtime `ec+3 ch=16` | `ec+3` | no | Lower-level Atmos/spatial evidence active | Shows HLS alone may not be enough; runtime/asbd token matters |
 | TV.app local file, direct-open/library-style runs | MacBook Pro Speakers | FigFilePlayer | local E-AC-3 / runtime `ec+3 ch=16` | `ec+3` | no | SpatializationManager active; mIsAtmos=1, mIsOARMode=1; mixer `ec+3 ch=16` spatializable/status 2; `[item requires immersive rendering no]` | Stays at `mediaFormatinfo ... is not rendering spatial audio` |
 | QuickTime Player local file control | MacBook Pro Speakers | FigFilePlayer | local E-AC-3 / runtime `ec+3 ch=16` | `ec+3` | n/a, no TV.app mediaFormatinfo line observed | mIsAtmos=1; mIsOARMode=1; AudioQueue spatialization enabled; AUSpatialMixerV2 algorithm 7; 16ch ec+3 AudioQueue | Does not unlock FigStreamPlayer/qc+3, but proves strong lower-level Apple spatial path for local playback |
-| Local HLS packaging of same file | not tested yet | unknown | unknown | unknown | unknown | unknown | Next major falsification test |
+| Local HLS packaging opened in QuickTime | MacBook Pro Speakers | FigStreamPlayer | HLS `ec-3` Atmos group / CoreAudio `ec+3 ch=16` input | `ec+3` | n/a, no TV.app mediaFormatinfo line observed | mIsAtmos=1; mIsOARMode=1; AudioQueue forced 7.1.4 Atmos decoder; AUSpatialMixerV2 `Atmos_7_1_4`; active byterange HLS playback | Strongest Apple-native local alternative so far, but not TV.app |
+| Local HLS packaging opened in TV.app URL schemes | MacBook Pro Speakers | none observed | none | none | no events | none | `http`, `itls`, `itlss`, `itvls`, `itvlss` produced no localhost fetches or playback events |
 | MOV/M4V/remux variants | not tested yet | predicted FigFilePlayer | predicted `ec+3` | predicted `ec+3` | predicted no | unknown | Cheap file-container falsification tests remain |
 
 ## Answers to the issue questions
@@ -176,10 +194,21 @@ File-level variants are not expected to change TV.app behavior unless they make 
   - stayed FigFilePlayer / `ec+3`
   - did not show FigStreamPlayer or `qc+3`
   - showed `mIsAtmos = 1`, `mIsOARMode = 1`, `AudioQueue ... spatialization enabled`, and `AUSpatialMixerV2 ... spatialization algorithm = 7`
+- QuickTime Player local-HLS control:
+  - used FigStreamPlayer against `http://127.0.0.1:8765/master.m3u8`
+  - selected `[AudioGroup atmos] [dvh1.05.06,ec-3]`
+  - created an `ec+3` 16ch AudioQueue and forced a 7.1.4 Atmos decoder
+  - initialized `AUSpatialMixerV2` with `Atmos_7_1_4`
+- TV.app arbitrary local-HLS launch controls:
+  - `http`, `itls`, `itlss`, `itvls`, and `itvlss` did not fetch from the
+    localhost server and produced no playback events
 
 ## What remains to test
 
-- Local HLS packaging of the same file, served over HTTP, opened in QuickTime Player or Safari.
+- Controlled listening A/B between TV.app local file, QuickTime local file, and
+  QuickTime local HTTP HLS.
+- Optional Safari local HTTP HLS follow-up with a broader non-TV.app capture
+  predicate.
 - MOV remux.
 - M4V copy/remux.
 - MP4/M4V faststart rebuild.
@@ -203,6 +232,8 @@ These match the focus areas in #10, #6, #4 and add parser hooks from the QuickTi
   - `AudioQueueObject ... spatialization enabled`
   - `CheckSpatialization ... mAutomaticSpatialization / mSpatializationEnabled`
   - `AUSpatialMixerV2 ... spatialization algorithm`
+  - `AUSpatialMixerV2 ... Setting audio channel layout Atmos_7_1_4`
+  - `AudioQueueObject ... Forcing 7.1.4 decoder for Atmos`
   - `Created new AudioQueue ... Spatialization`
 
 ### Inspect / TV Capture UI
@@ -233,8 +264,9 @@ These match the focus areas in #10, #6, #4 and add parser hooks from the QuickTi
 - [x] Original local-file capture used and consistent with Local 1 / Local 2 in `ISSUE_8_EC3_QC3_REPORT.md`.
 - [x] Additional TV.app local direct-open/library-style captures observed; still FigFilePlayer/ec+3/app-false.
 - [x] QuickTime Player local-file control captured; still FigFilePlayer/ec+3 but with stronger lower-level CoreAudio spatialization evidence.
+- [x] QuickTime Player local-HLS control captured; FigStreamPlayer with Atmos/CoreAudio spatial mixer evidence.
 - [ ] At least one local-file container/remux variant tested. Not completed yet.
-- [ ] Local HLS packaging test completed. Not completed yet.
+- [x] Local HLS packaging test completed for QuickTime; TV.app URL-scheme launch did not work.
 - [x] Report distinguishes app-level spatial rendering from lower-level spatial / Atmos evidence.
 - [x] Report does not claim `ec+3` is lower quality than `qc+3` by token name.
 - [x] Report clearly states what was tried and what remains unknown.

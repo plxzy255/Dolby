@@ -31,6 +31,13 @@ PREDICATE = (
     ' OR process == "TV"'
 )
 
+LOCAL_PLAYER_PREDICATE = (
+    PREDICATE
+    + ' OR process == "QuickTime Player"'
+    + ' OR process == "Safari"'
+    + ' OR process CONTAINS "WebKit"'
+)
+
 
 # ---------------------------------------------------------------------------
 # regexes — kept loose, errors of omission are fine, errors of commission are not
@@ -40,7 +47,7 @@ PREDICATE = (
 # <FigAlternate(504):[0x...] [Peak/Avg 30570719/24765202] [3840x1606] [AudioGroup ...] [dvh1.05.06,ec-3]
 # [VideoRange PQ] [HDCP Type1] [FrameRate 23.976]
 RE_FIG_ALT = re.compile(
-    r"FigAlternate\((?P<id>\d+)\)"
+    r"FigAlternate\(\s*(?P<id>\d+)\s*\)"
 )
 RE_FIG_ALT_PEAK = re.compile(r"\[Peak/Avg\s+(?P<peak>\d+)/(?P<avg>\d+)\]")
 RE_FIG_ALT_RES = re.compile(r"\[(?P<width>\d+)x(?P<height>\d+)\]")
@@ -82,6 +89,10 @@ RE_FILE_PLAYER = re.compile(
 RE_PIPELINE_ENGINE = re.compile(
     r"(?P<engine>itemfig_ReportAudioPlaybackThroughFigLog"
     r"|fpfs_ReportAudioPlaybackThroughFigLog)",
+    re.IGNORECASE,
+)
+RE_PIPELINE_MARKER = re.compile(
+    r"<<<<\s*(?P<engine>Fig(?:File|Stream)Player)\s*>>>>",
     re.IGNORECASE,
 )
 
@@ -178,6 +189,13 @@ RE_ATMOS_DECODER_SUBTYPE = re.compile(
     r"ACDDPAtmosDecoder\.cpp:\d+.*?subType = '(?P<subtype>[^']+)'",
     re.IGNORECASE,
 )
+RE_COREAUDIO_INPUT_FORMAT = re.compile(
+    r"(?:Input format:|AudioQueueNewOutput)\s*"
+    r"(?P<channels>\d+)\s*ch,\s*"
+    r"(?P<sample_rate>\d+)\s*Hz,\s*"
+    r"(?P<format>[a-z0-9+.-]+)",
+    re.IGNORECASE,
+)
 RE_MIXER_SPATIAL_STATUS = re.compile(
     r"MEMixerChannel\.cpp:\d+\s+"
     r"mFormatID='(?P<format>[^']+)',\s*"
@@ -190,6 +208,19 @@ RE_MIXER_SPATIAL_STATUS = re.compile(
 )
 RE_SPATIAL_RENDERING_NOTIFICATION = re.compile(
     r"AVCFPlayerItemSpatialAudioRenderingDidChangeNotification",
+    re.IGNORECASE,
+)
+RE_AUSPATIAL_MIXER = re.compile(r"AUSpatialMixerV2", re.IGNORECASE)
+RE_AUSPATIAL_LAYOUT = re.compile(
+    r"AUSpatialMixerV2.*?Setting audio channel layout (?P<layout>[A-Za-z0-9_]+)",
+    re.IGNORECASE,
+)
+RE_AUSPATIAL_CHANNEL_PROCESSORS = re.compile(
+    r"AUSpatialMixerV2.*?Initializing (?P<channels>\d+) channel processors",
+    re.IGNORECASE,
+)
+RE_AUDIOQUEUE_FORCE_714 = re.compile(
+    r"Forcing 7\.1\.4 decoder for Atmos",
     re.IGNORECASE,
 )
 
@@ -218,6 +249,7 @@ def _parse_line(line: str) -> dict[str, Any] | None:
             "video_range": video_range.group("range") if video_range else None,
             "hdcp": hdcp.group("hdcp") if hdcp else None,
             "fps": _float(fps.group("fps") if fps else None),
+            "pipeline_engine": _pipeline_engine_from_line(line),
         }
     if m := RE_HLS_VARIANT_SUMMARY.search(line):
         d = m.groupdict()
@@ -256,10 +288,7 @@ def _parse_line(line: str) -> dict[str, Any] | None:
         if not fmt:
             return None
         # Detect pipeline engine from the reporting function name on the same line
-        pipeline_engine: str | None = None
-        if pm := RE_PIPELINE_ENGINE.search(line):
-            fn = pm.group("engine").lower()
-            pipeline_engine = "FigFilePlayer" if fn.startswith("itemfig") else "FigStreamPlayer"
+        pipeline_engine = _pipeline_engine_from_line(line)
         # Detect immersive rendering flag from the same log block
         immersive: str | None = None
         if im := RE_IMMERSIVE_RENDERING.search(line):
@@ -279,8 +308,26 @@ def _parse_line(line: str) -> dict[str, Any] | None:
         if immersive is not None:
             event["immersive_rendering_requested"] = immersive == "yes"
         return event
+    if m := RE_COREAUDIO_INPUT_FORMAT.search(line):
+        return {
+            "kind": "audio_format",
+            "raw": line.rstrip(),
+            "format": m.group("format"),
+            "channels": _int(m.group("channels")),
+            "sample_rate": _int(m.group("sample_rate")),
+            "spatialization_eligible": None,
+            "spatialization": None,
+            "decodable": None,
+            "source": "coreaudio_input_format",
+        }
     if renderer_event := _parse_renderer_line(line):
         return renderer_event
+    if engine := _pipeline_engine_from_line(line):
+        return {
+            "kind": "pipeline_engine",
+            "raw": line.rstrip(),
+            "pipeline_engine": engine,
+        }
     if m := RE_FILE_PLAYER.search(line):
         d = m.groupdict()
         if d["codec"]:
@@ -384,6 +431,33 @@ def _parse_renderer_line(line: str) -> dict[str, Any] | None:
             "raw": line.rstrip(),
             "decoder_subtype": m.group("subtype").strip(),
         }
+    if RE_AUDIOQUEUE_FORCE_714.search(line):
+        return {
+            "kind": "renderer_hint",
+            "hint": "audioqueue_forced_atmos_714",
+            "raw": line.rstrip(),
+            "forced_atmos_714": True,
+        }
+    if m := RE_AUSPATIAL_LAYOUT.search(line):
+        return {
+            "kind": "renderer_hint",
+            "hint": "auspatial_channel_layout",
+            "raw": line.rstrip(),
+            "channel_layout": m.group("layout"),
+        }
+    if m := RE_AUSPATIAL_CHANNEL_PROCESSORS.search(line):
+        return {
+            "kind": "renderer_hint",
+            "hint": "auspatial_channel_processors",
+            "raw": line.rstrip(),
+            "channel_processors": _int(m.group("channels")),
+        }
+    if RE_AUSPATIAL_MIXER.search(line):
+        return {
+            "kind": "renderer_hint",
+            "hint": "auspatial_mixer",
+            "raw": line.rstrip(),
+        }
     if m := RE_MIXER_SPATIAL_STATUS.search(line):
         d = m.groupdict()
         return {
@@ -439,6 +513,16 @@ def _bool01(v: Any) -> bool | None:
         return True
     if v == "0" or v == 0:
         return False
+    return None
+
+
+def _pipeline_engine_from_line(line: str) -> str | None:
+    if pm := RE_PIPELINE_ENGINE.search(line):
+        fn = pm.group("engine").lower()
+        return "FigFilePlayer" if fn.startswith("itemfig") else "FigStreamPlayer"
+    if pm := RE_PIPELINE_MARKER.search(line):
+        engine = pm.group("engine")
+        return "FigFilePlayer" if engine.lower() == "figfileplayer" else "FigStreamPlayer"
     return None
 
 
@@ -527,8 +611,9 @@ def _audio_rank(event: dict[str, Any]) -> tuple[int, int, int]:
 class LogCapture:
     """Spawns `log stream` and accumulates parsed events until stopped."""
 
-    def __init__(self) -> None:
+    def __init__(self, predicate: str | None = None) -> None:
         self.events: list[dict[str, Any]] = []
+        self.predicate = predicate or PREDICATE
         self._proc: subprocess.Popen | None = None
         self._reader: threading.Thread | None = None
         self._stop = threading.Event()
@@ -552,7 +637,7 @@ class LogCapture:
                 "--style",
                 "compact",
                 "--predicate",
-                PREDICATE,
+                self.predicate,
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -623,7 +708,7 @@ class LogCapture:
                 "event_count": 0,
                 "playback": None,
                 "events": [],
-                "predicate": PREDICATE,
+                "predicate": self.predicate,
             }
 
         # Pick the last HLS variant (final ABR rung) if any
@@ -700,8 +785,11 @@ class LogCapture:
         if last_file:
             playback["file_player"] = last_file
         # pipeline_engine from audio events (most reliable source when it appears in the same log block)
+        pipeline_events = [e for e in self.events if e["kind"] == "pipeline_engine"]
         pipeline_engines = _unique_keep_order(
             [e["pipeline_engine"] for e in audio_events if e.get("pipeline_engine")]
+            + [e["pipeline_engine"] for e in hls_variants if e.get("pipeline_engine")]
+            + [e["pipeline_engine"] for e in pipeline_events if e.get("pipeline_engine")]
         )
         if pipeline_engines:
             playback["pipeline_engine"] = pipeline_engines[-1]
@@ -752,14 +840,14 @@ class LogCapture:
             "event_count": len(self.events),
             "playback": playback,
             "events": self.events,
-            "predicate": PREDICATE,
+            "predicate": self.predicate,
         }
 
 
 def _hls_audio_group_kind(audio_group: str | None, audio_codec: str | None) -> str | None:
     group = (audio_group or "").lower()
     codec = (audio_codec or "").lower()
-    if "audio-atmos" in group or codec in {"ec-3", "ec3"}:
+    if "atmos" in group or codec in {"ec-3", "ec3"}:
         return "atmos"
     if "audio-stereo" in group or codec.startswith("mp4a"):
         return "stereo"
@@ -913,6 +1001,27 @@ def _renderer_summary(
             )
         ]
 
+    if any(e["hint"].startswith("auspatial_") for e in events):
+        summary["auspatial_mixer_active"] = True
+    layouts = [
+        e.get("channel_layout")
+        for e in events
+        if e["hint"] == "auspatial_channel_layout" and e.get("channel_layout")
+    ]
+    if layouts:
+        summary["auspatial_channel_layouts"] = _unique_keep_order(layouts)
+        if any("Atmos" in layout for layout in layouts):
+            summary["auspatial_atmos_layout_active"] = True
+    processors = [
+        e.get("channel_processors")
+        for e in events
+        if e["hint"] == "auspatial_channel_processors" and e.get("channel_processors")
+    ]
+    if processors:
+        summary["auspatial_channel_processors"] = _unique_keep_order(processors)
+    if any(e["hint"] == "audioqueue_forced_atmos_714" for e in events):
+        summary["audioqueue_forced_atmos_714"] = True
+
     # Allowed spatialization formats mask (AVCFPlayerItemSetAllowedAudioSpatializationFormats)
     mask_events = [e for e in events if e["hint"] == "allowed_spatialization_formats_mask"]
     if mask_events:
@@ -969,6 +1078,9 @@ def _renderer_summary(
             "atmos_decoder_active",
             "oar_mode_active",
             "mixer_content_spatializable",
+            "auspatial_mixer_active",
+            "auspatial_atmos_layout_active",
+            "audioqueue_forced_atmos_714",
         )
     )
     if summary.get("app_spatial_rendering_last_state") is True:
@@ -988,8 +1100,8 @@ def _renderer_summary(
             "is running), but TV.app's app-level spatial-rendering flag is false. "
             "This is TV.app-specific behavior: it narrows allowedAudioSpatializationFormats "
             "to 0x5 (stripping Multichannel) for local items, via "
-            "mpc_updateAVAudioSpatializationFormatsForPlayerAudioFormat:. Custom AVPlayer "
-            "apps (e.g. SpatialProbe, QuickTime) render spatial=true on the same content/route. "
+            "mpc_updateAVAudioSpatializationFormatsForPlayerAudioFormat:. Diagnostic "
+            "AVFoundation controls and QuickTime render spatial=true on the same content/route. "
             "Not a codec downgrade — the Atmos pipeline is still engaged."
         )
     elif summary["lower_level_spatialization_active"]:
@@ -1056,4 +1168,4 @@ def _unique_events(events: list[dict[str, Any]], fields: tuple[str, ...]) -> lis
     return unique
 
 
-__all__ = ["LogCapture", "PREDICATE"]
+__all__ = ["LogCapture", "PREDICATE", "LOCAL_PLAYER_PREDICATE"]

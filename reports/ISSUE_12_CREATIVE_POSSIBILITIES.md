@@ -64,6 +64,16 @@ However, the local Atmos stream was incomplete (`Complete=NO`,
 and selected. The obstacle is therefore TV.app trust / package completeness
 and title/account/device download policy, not just the container format.
 
+The local-HLS follow-up adds a separate finding: QuickTime Player can open
+a locally served HLS package from the user's Atmos source and run it through
+FigStreamPlayer. A Range-capable localhost server was required; Python's
+basic `http.server` was insufficient for the byterange media requests. The
+QuickTime raw log showed `FigStreamPlayer`, selected `[AudioGroup atmos]`
+with `[dvh1.05.06,ec-3]`, created an `ec+3` 16-channel AudioQueue, forced a
+7.1.4 Atmos decoder, and configured `AUSpatialMixerV2` with
+`Atmos_7_1_4`. This is not TV.app local playback, but it is the strongest
+Apple-native local playback alternative observed so far.
+
 ## Ranked creative paths
 
 Ranked by confidence that the path actually flips the renderer state, given
@@ -142,25 +152,24 @@ what we already know.
      highest chance the AVAssetDownloadTask in path 4 will succeed, but it
      still does not solve TV.app trust/package-completeness policy by itself.
 
-### Tier C — promising but unproven
+### Tier C — tested alternatives outside TV.app downloaded playback
 
 7. **TV.app "Live Stream URL" schemes (`itls://`, `itlss://`, `itvls://`,
    `itvlss://`)**
    - These are exposed in TV.app's Info.plist but undocumented. They look
      like Apple's IPTV/cable-provider live stream handlers.
-   - Try `open "itls://localhost:8000/master.m3u8"` (and the other three
-     variants) with a local HLS server running and capture the log stream.
-   - Expected: if TV.app interprets the URL as HLS and starts a live
-     playback, FigStreamPlayer takes over and the renderer flag can flip.
-   - Falsification: if TV.app errors out, ignores the URL, or routes
-     through a placeholder UI ("This provider is not supported in your
-     region"), this path is dead.
+   - Tried `http`, `itls`, `itlss`, `itvls`, and `itvlss` against
+     `http://127.0.0.1:8765/master.m3u8`.
+   - Result: TV.app produced 0 relevant events and made no localhost server
+     requests. Treat this path as dead for arbitrary local HLS unless a
+     provider-authenticated URL form is discovered.
 
 8. **`open -b com.apple.TV http://localhost:8000/master.m3u8` against a
    local HLS server**
    - TV.app does not advertise generic `http`/`https` handler ownership for
-     m3u8, so this is most likely a no-op. Still cheap to try.
-   - Same expected outcome as path 7 if it works.
+     m3u8.
+   - Tried directly; same result as the TV.app live-stream schemes: no
+     playback events and no localhost fetches.
 
 9. **Open via Safari in fullscreen video**
    - Safari plays HLS via CoreMedia's FigStreamPlayer. Drag an `m3u8` URL
@@ -176,10 +185,16 @@ what we already know.
      real signal, not the missing TV-specific log line.
 
 10. **Open in QuickTime via File → Open Location**
-   - QuickTime accepts HLS URLs via `Open Location`. Same caveat as Safari:
-     QuickTime is not TV.app, so the TV-specific app-level log line will
-     not appear, but the underlying CoreMedia engine choice is what
-     matters audibly.
+   - Tested with a locally served HLS package built from the user's Atmos
+     source.
+   - Result: QuickTime accepted `http://127.0.0.1:8765/master.m3u8`, used
+     FigStreamPlayer, selected the Atmos HLS group, decoded `ec+3` 16ch,
+     forced a 7.1.4 Atmos decoder, and initialized `AUSpatialMixerV2` with
+     an `Atmos_7_1_4` input layout.
+   - Caveat: QuickTime is not TV.app, so the TV-specific `mediaFormatinfo
+     ... is rendering spatial audio = true` line is not expected. Judge it
+     by CoreMedia/CoreAudio evidence and controlled listening, not by the
+     missing TV.app-only flag.
 
 ### Tier D — unlikely to flip the engine
 
@@ -258,6 +273,19 @@ Execution update:
   `Complete=YES` is inside an `InterstitialAssets/...movpkg` child
   package with 2 fragments and roughly 450 KB of audio data, so it is
   not evidence that the full episode downloaded Atmos.
+- A local HTTP HLS package built from
+  `/Users/psp/Desktop/Dolby Spatial Test.movpkg` was served from
+  `.tmp/alt_hls`. A Range-capable Node server on `127.0.0.1:8765` was
+  needed for QuickTime/Safari byterange requests.
+- TV.app did not open that arbitrary HLS URL through `http`, `itls`,
+  `itlss`, `itvls`, or `itvlss`; it produced no playback events and made no
+  localhost fetches.
+- QuickTime Player did open the same local HLS URL. Raw log
+  `captures/alt_paths/20260523_052228_quicktime_range_hls_raw.log` shows
+  `FigStreamPlayer`, `[AudioGroup atmos]`, `[dvh1.05.06,ec-3]`, `ec+3`
+  16ch AudioQueue input, `mIsAtmos = 1`, `mIsOARMode = 1`, `Forcing 7.1.4
+  decoder for Atmos`, and `AUSpatialMixerV2` input layout
+  `Atmos_7_1_4`.
 - The Ted Lasso downloaded-playback capture selected
   `downloaded_movpkg` / `audio-stereo-128_download-ap-aoc.tv.apple.com`.
   It still showed transient `ec+3`/16ch lower-level evidence from
