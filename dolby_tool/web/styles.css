@@ -130,7 +130,7 @@ main {
 }
 
 .dropzone:hover {
-  border-color: var(--text-dim);
+  border-color: rgba(154, 163, 173, 0.3);
 }
 
 .dropzone.drag {
