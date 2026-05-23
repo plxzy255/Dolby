@@ -851,8 +851,11 @@ function renderCaptureSummary(summary) {
 
   // Verdict pill
   const pills = el('div', { class: 'row', style: 'justify-content: flex-start; margin-bottom: 12px' });
+  const hlsSourceLabel = p.hls_delivery === 'downloaded_movpkg'
+    ? 'Source: downloaded .movpkg'
+    : 'Source: HLS (Apple TV+ / streaming)';
   pills.appendChild(el('span', { class: 'pill ' + (p.source === 'hls' ? 'good' : p.source === 'local_file' ? 'warn' : 'neutral') },
-    p.source === 'hls' ? 'Source: HLS (Apple TV+ / streaming)' : p.source === 'local_file' ? 'Source: Local file' : 'Source: unknown'));
+    p.source === 'hls' ? hlsSourceLabel : p.source === 'local_file' ? 'Source: Local file' : 'Source: unknown'));
   if (p.pipeline_engine) {
     const isStream = p.pipeline_engine === 'FigStreamPlayer';
     pills.appendChild(el('span', { class: `pill ${isStream ? 'good' : 'neutral'}` }, `Engine: ${p.pipeline_engine}`));
@@ -861,6 +864,11 @@ function renderCaptureSummary(summary) {
   else if (p.dolby_vision_active === false) pills.appendChild(el('span', { class: 'pill bad' }, 'Dolby Vision NOT active'));
   else if (p.dv_label) pills.appendChild(el('span', { class: 'pill warn' }, p.dv_label));
   if (p.audio && p.audio.is_atmos) pills.appendChild(el('span', { class: 'pill good' }, 'Atmos'));
+  if (p.downloaded_hls_verdict === 'movpkg_atmos_variant_present_but_not_selected') {
+    pills.appendChild(el('span', { class: 'pill warn' }, '.movpkg Atmos seen, stereo selected'));
+  } else if (p.downloaded_hls_verdict === 'movpkg_figstreamplayer_selected_stereo') {
+    pills.appendChild(el('span', { class: 'pill warn' }, '.movpkg stereo selected'));
+  }
   if (p.best_audio && audioLabel(p.best_audio) !== audioLabel(p.audio)) {
     pills.appendChild(el('span', { class: `pill ${audioPillClass(p.best_audio)}` }, `Best audio: ${audioLabel(p.best_audio)}`));
   }
@@ -882,6 +890,13 @@ function renderCaptureSummary(summary) {
   if (p.avg_mbps) g.appendChild(kv('HLS average', `${p.avg_mbps} Mbps`));
   if (p.video_fourcc) g.appendChild(kv('HLS video', p.video_fourcc));
   if (p.audio_codec) g.appendChild(kv('HLS audio', p.audio_codec));
+  if (p.selected_hls_audio_group) g.appendChild(kv('HLS AudioGroup', p.selected_hls_audio_group,
+    p.selected_hls_audio_group_kind === 'atmos' ? 'good' : p.selected_hls_audio_group_kind === 'stereo' ? 'warn' : 'neutral'));
+  if (p.selected_hls_audio_group_kind) g.appendChild(kv('HLS AudioGroup kind', p.selected_hls_audio_group_kind,
+    p.selected_hls_audio_group_kind === 'atmos' ? 'good' : p.selected_hls_audio_group_kind === 'stereo' ? 'warn' : 'neutral'));
+  if (p.hls_delivery) g.appendChild(kv('HLS delivery', p.hls_delivery));
+  if (p.downloaded_hls_verdict) g.appendChild(kv('Downloaded HLS verdict', p.downloaded_hls_verdict,
+    p.downloaded_hls_verdict.includes('stereo') || p.downloaded_hls_verdict.includes('not_selected') ? 'warn' : 'good'));
   if (p.audio) {
     g.appendChild(kv('Current audio', audioLabel(p.audio), audioPillClass(p.audio)));
     g.appendChild(kv('Current channels', p.audio.channels));

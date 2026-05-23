@@ -184,7 +184,7 @@ The real gate is at the AVFoundation format-intersection layer inside
 ### What this means for "make local files render spatial"
 
 For a **custom AVPlayer app** (any non-TV.app process using
-AVFoundation directly):
+AVFoundation directly), the diagnostic result was:
 
 1. Explicitly set
    `[playerItem setAllowedAudioSpatializationFormats:
@@ -195,12 +195,9 @@ AVFoundation directly):
    audio to AVF as if it were stereo at the format-description layer
    (a custom AudioTap or a format-description override) so FPSupport
    returns `0x1`, then intersect with `0x5` → `0x1` → spatial.
-3. The next experiment is the simplest test: a 30-line Swift app that
-   creates an `AVPlayer` against the local file, sets the allow mask
-   to `MonoStereoAndMultichannel`, plays, and we capture the same
-   dtrace probes. If it produces `is rendering spatial audio = true`
-   on MacBook speakers, the workaround for non-TV.app contexts is
-   confirmed.
+3. This has diagnostic value for isolating TV.app's behavior, but it
+   is not the solution path for this issue. The current path remains
+   TV.app / Apple-managed downloads / local playback.
 
 For **TV.app itself**:
 
@@ -498,9 +495,10 @@ probes had crashed TV.app on the prior attempt.
    update path is what flips the mask to Multichannel-only** for
    stream-player items.
 
-3. **The downloaded `.movpkg` does contain an Atmos audio variant.**
-   At t≈8.2s (when the interstitial preroll handed off to the feature
-   item), MEMixerChannel briefly evaluated:
+3. **The downloaded `.movpkg` capture briefly exposed an
+   Atmos-capable evaluation, but this is not yet proof that the Atmos
+   group is complete locally.** At t≈8.2s (when the interstitial preroll
+   handed off to the feature item), MEMixerChannel briefly evaluated:
 
    ```
    MEMixerChannel.cpp:3273  16-channel audiovisual content is eligible
@@ -510,9 +508,13 @@ probes had crashed TV.app on the prior attempt.
       mSpatializationStatus=0, err=0
    ```
 
-   `ec+3` 16ch, `mContentspatializable=1` — Atmos was present. But
-   `mSpatializationStatus=0` (not 2), and the playback then settled on
-   a different audio variant.
+   `ec+3` 16ch, `mContentspatializable=1` — the runtime saw an
+   Atmos-capable source/configuration. But `mSpatializationStatus=0`
+   (not 2), the log line does not name the HLS AudioGroup, and playback
+   then settled on a different audio variant. Do not treat this single
+   mixer line as proof that a complete local `audio-atmos-*` stream was
+   downloaded until `boot.xml` / `root.xml` / playlist metadata and
+   segment files confirm it.
 
 4. **TV.app's download / playback policy selected the stereo variant,
    not Atmos.** The chosen alternate was:
@@ -527,59 +529,123 @@ probes had crashed TV.app on the prior attempt.
    `Spatialization no` and `Rendition Stereo` for the entire main
    feature.
 
-### Implication for Option 2 (.movpkg path)
+### Downloaded `.movpkg` highest-quality follow-up
 
-The hard technical question ("can TV.app play a local `.movpkg`
-through the spatial-rendering path?") is **yes**. The infrastructure
-is intact:
-- FigStreamPlayer engages ✅
-- Allow mask permits Multichannel ✅
-- Route is spatial-capable ✅
-- The Atmos audio variant exists in the package ✅
+Follow-up constraints from the user:
 
-The blocker is **which variant TV.app selects for download/playback**.
-For a `.movpkg` to reach spatial=true in TV.app, the **Atmos
-AudioGroup must be the one playback resolves to**, not the stereo-160
-group. Two practical next steps:
+- TV.app Playback Download Quality was already set to the highest
+  available setting before this `.movpkg` was downloaded/tested.
+- The TV.app audio picker only showed `English` and `English AD`.
+- `English` was selected for the capture.
+- Treat `English AD` as Audio Description unless logs prove it maps to
+  the Atmos group. It is not a presumed quality/Atmos selector.
 
-1. **Check TV.app Settings → Playback → Download Quality.** Apple
-   documents that "Highest Quality" enables Dolby Atmos in downloads.
-   If currently set to Standard, switching to Highest Quality and
-   re-downloading should produce a `.movpkg` whose primary
-   AudioGroup is Atmos.
-2. **During playback, open the audio-track picker** (the speech-balloon
-   icon in TV.app's player UI). If the manifest contains an Atmos
-   track, it should be selectable there. Selecting it should make
-   FigStreamPlayer switch the AudioGroup, and the spatial pipeline
-   should activate within a second.
+This removes "enable Highest Quality" as the unresolved fix. The
+unresolved question is narrower: **does the downloaded package contain
+a complete playable Atmos AudioGroup, and if it does, why does TV.app
+select `audio-stereo-160_download-ap-aoc.tv.apple.com` for normal
+English playback?**
 
-If both of those land on the stereo-160 group, the next layer to
-investigate is the manifest filtering — TV.app's download manager
-may strip Atmos variants from the local `.movpkg` when the
-download-quality setting is below "Highest". In that case, building
-a custom `.movpkg` that retains Atmos (Tier A) becomes harder than
-expected because TV.app's own download tooling is the source of
-trust for `.movpkg` content identity.
+Current evidence table:
+
+| Stream / evidence | Group / name | Language | Role / accessibility | Codec | Complete/downloaded status | Bytes / segments | Interpretation |
+|---|---|---|---|---|---|---|---|
+| `FigAlternate(82)` | `audio-stereo-160_download-ap-aoc.tv.apple.com` | English, inferred from selected UI track | normal `English`; not AD | `mp4a.40.2` manifest, runtime `aac `/`qaac` ch=2 | selected for downloaded playback | not measured in this log-only capture | main English stereo selected |
+| transient mixer eval | group not logged | unknown | unknown | runtime `ec+3` ch=16 | unknown; not proven complete locally | unknown | Atmos-capable evaluation appeared briefly, but not selected |
+| TV.app picker | `English` | English | normal dialogue | selected group resolved to stereo in logs | selected | n/a | normal English maps to stereo for this package/capture |
+| TV.app picker | `English AD` | English | likely Audio Description | not captured | unknown | n/a | AD is not the desired quality track unless a follow-up log maps it to Atmos |
+
+Metadata/manifests still need a direct package inspection. In this
+workspace the original Apple TV `Grass Lands.movpkg` was not found
+under the usual local TV containers during this follow-up, so the
+`boot.xml` / `root.xml` / playlist / segment-completeness table cannot
+yet be filled from package files. The current package-level verdict is
+therefore **not** "Atmos is complete but TV.app ignored it"; it is:
+
+> TV.app downloaded `.movpkg` has the right FigStreamPlayer
+> infrastructure and selected a downloaded stereo AudioGroup despite
+> Highest Quality. A transient `ec+3`/16ch spatializable evaluation
+> suggests an Atmos-capable variant/source may exist, but local
+> completeness is unverified. Next layer is package-manifest
+> completeness and TV.app selection policy / title-specific download
+> behavior.
+
+When the `.movpkg` is available again, inspect it directly:
+
+```sh
+MOVPKG='/path/to/Grass Lands.movpkg'
+find "$MOVPKG" -maxdepth 4 \( -name boot.xml -o -name root.xml -o -name '*.m3u8' -o -name 'StreamInfoBoot.xml' \) -print
+rg -n 'audio-atmos|audio-stereo|ec-3|mp4a\.40\.2|Complete=YES|download-ap-aoc|vod-ap-aoc|AD|description|accessibility|public\.accessibility|describes-video' "$MOVPKG"
+find "$MOVPKG" -mindepth 1 -maxdepth 1 -type d -print0 |
+  while IFS= read -r -d '' d; do
+    printf '%s\tfiles=%s\tbytes=%s\n' \
+      "$(basename "$d")" \
+      "$(find "$d" -type f | wc -l | tr -d ' ')" \
+      "$(du -sk "$d" | awk '{print $1 * 1024}')"
+  done | sort
+```
+
+The inspection should answer:
+
+- `audio-atmos-*` present and `Complete=YES` with segment files:
+  TV.app downloaded `.movpkg` has local Atmos data, but TV.app policy
+  selected the stereo group despite Highest Quality.
+- `audio-atmos-*` referenced but incomplete/missing segment files:
+  Highest Quality did not download a playable Atmos group for this
+  title/device/account/route, so the stereo result is due to package
+  contents.
+- `English AD` maps to stereo: AD is not the desired quality track.
+- `English AD` maps to Atmos unexpectedly: audio picker labels are
+  misleading; document the mapping and retest.
+
+Clean downloaded-playback capture recipe:
+
+1. Disable network/Wi-Fi so playback must use the local download.
+2. Open TV.app directly to Library / Downloaded item.
+3. Start `dolby-tool` TV Capture before pressing play.
+4. Play 45-60 seconds with `English` selected.
+5. Capture selected AudioGroup, codec, runtime audio,
+   `mediaFormatinfo`, `MEMixerChannel`, SpatialMgr route/source, and
+   `FigAlternate` selection lines.
+6. Optionally repeat with `English AD`, but only to map that label; do
+   not assume AD is the Atmos-quality option.
 
 ### Bonus: tvlog parser updates relevant here
 
-The parser (Option 3) now surfaces:
+The parser now surfaces:
 
 - `route_spatial_capable` (true when `maxSpatializableChannels > 0`)
 - `spatial_audio_sources` and `spatial_source_unknown`
 - `spatial_binding_apps`
+- `selected_hls_audio_group`
+- `selected_hls_audio_group_kind` (`stereo`, `atmos`, or
+  `audio_description` when inferable)
+- `hls_delivery` (`downloaded_movpkg` vs `online_hls` when the
+  AudioGroup hostname exposes it)
+- `downloaded_hls_verdict`, including:
+  `movpkg_figstreamplayer_selected_stereo`,
+  `movpkg_atmos_variant_present_but_not_selected`, and
+  `movpkg_atmos_variant_selected`
 
-These mean a future capture of TV.app on a `.movpkg` will be
-machine-readable for verdict comparison.
+The saved 03:22 capture now parses as:
+
+```text
+hls_delivery: downloaded_movpkg
+pipeline_engine: FigStreamPlayer
+selected_hls_audio_group: audio-stereo-160_download-ap-aoc.tv.apple.com
+selected_hls_audio_group_kind: stereo
+audio_codec: mp4a.40.2
+downloaded_hls_verdict: movpkg_atmos_variant_present_but_not_selected
+current audio: qaac ch=2
+```
 
 ## Bottom line (2026-05-23)
 
 - **For local-file Atmos playback with `is rendering spatial audio = true`
-  on a spatial-capable route, the only blocker is TV.app's own behavior.**
-  Any AVPlayer-based macOS app that sets
-  `allowedAudioSpatializationFormats = .monoStereoAndMultichannel` on its
-  `AVPlayerItem` will render spatial audio on the same content. This is
-  empirically verified by SpatialProbe Run B on MBP speakers.
+  on a spatial-capable route, the only blocker identified so far is
+  TV.app's own behavior.** SpatialProbe proved that an AVFoundation
+  caller can render the same local content spatially on MBP speakers,
+  but that was a diagnostic control, not the proposed solution path.
 - The earlier characterization of the gate as an AVF allow ∩ eligibility
   intersection was correct but incomplete: it is downstream of the
   per-route SpatialMgr capability check and the per-route Atmos JOC
