@@ -84,7 +84,11 @@ def convert_and_remux(
         if not idx_subs:
             return PgsConversionResult(converted=0, skipped=len(pgs_streams), reason="bdsup2sub failed on all tracks")
 
-        # Re-mux: take the existing MP4 + each .idx as an extra input.
+        # `-map 0` re-emits every stream already in target_mp4 — including any
+        # existing subtitle tracks — so the new VobSub outputs land at indices
+        # offset by the count of subtitles already present.
+        existing_subs = _count_subtitle_streams(target_mp4)
+
         cmd: list[str] = ["ffmpeg", "-hide_banner", "-y", "-i", str(target_mp4)]
         for idx, _sub, _lang in idx_subs:
             cmd += ["-i", str(idx)]
@@ -92,7 +96,7 @@ def convert_and_remux(
         for i, (_idx, _sub, lang) in enumerate(idx_subs, start=1):
             cmd += ["-map", f"{i}:s"]
             if lang:
-                cmd += [f"-metadata:s:s:{i-1}", f"language={lang}"]
+                cmd += [f"-metadata:s:s:{existing_subs + i - 1}", f"language={lang}"]
         cmd += ["-c", "copy", "-movflags", "+faststart+use_metadata_tags", str(output)]
         r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode != 0:
@@ -103,3 +107,15 @@ def convert_and_remux(
             )
 
     return PgsConversionResult(converted=len(idx_subs), skipped=len(pgs_streams) - len(idx_subs))
+
+
+def _count_subtitle_streams(mp4: Path) -> int:
+    """Return how many subtitle streams already live in `mp4` (0 if probe fails)."""
+    r = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "s",
+         "-show_entries", "stream=index", "-of", "csv=p=0", str(mp4)],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        return 0
+    return sum(1 for line in r.stdout.splitlines() if line.strip())

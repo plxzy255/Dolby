@@ -172,6 +172,19 @@ def _enrich_with_details(meta: Metadata, content_id: str, store: Store, *, media
     meta.studio = content.get("studio")
     meta.short_description = content.get("description") or meta.short_description
 
+    # Backfill title/series-name when caller arrived via --metadata-id (synthetic
+    # SearchHit has no title). For movies content.title is the movie title; for
+    # TV the details endpoint is hit against the *show* id, so content.title is
+    # the show name and feeds series_name.
+    detail_title = content.get("title")
+    if detail_title:
+        if media == MEDIA_MOVIE and not meta.title:
+            meta.title = detail_title
+        if media == MEDIA_TV and not meta.series_name:
+            meta.series_name = detail_title
+    if media == MEDIA_TV and not meta.series_description:
+        meta.series_description = content.get("description") or meta.series_description
+
     def names(of_type: str) -> list[str]:
         return [r["personName"] for r in roles if r.get("type") == of_type]
 
@@ -195,15 +208,32 @@ def _enrich_with_details(meta: Metadata, content_id: str, store: Store, *, media
 # ----------------------------------------------------------------- TV
 
 def fetch_seasons(show_id: str, store: Store) -> list[tuple[int, int]]:
-    """Return list of (season_number, episode_count) for a show."""
+    """Return list of (season_number, episode_count) for a show, ordered by season."""
     url = f"{_EPISODES}{show_id}/episodes?sf={store.store_code}&locale={store.locale}{_OPTIONS}"
     payload = _get(url)
     if not payload:
         return []
     data = payload.get("data") or {}
-    available = sorted({s for c in (data.get("availableChannels") or []) for s in c.get("seasonNumbers", [])})
-    counts = [s.get("episodeCount", 0) for s in (data.get("seasonSummaries") or [])]
-    return list(zip(available, counts, strict=False))
+    summaries = data.get("seasonSummaries") or []
+
+    # Prefer pairing season number with episode count from the same summary
+    # entry — zipping with availableChannels by position can misalign when
+    # the two sources differ in order or length.
+    pairs: list[tuple[int, int]] = []
+    for s in summaries:
+        n = s.get("seasonNumber") or s.get("season") or s.get("number")
+        c = s.get("episodeCount") or s.get("count") or 0
+        if n is not None:
+            pairs.append((int(n), int(c)))
+
+    if not pairs:
+        # Last-resort fallback: derive season list from availableChannels with
+        # zero counts (caller will then need to fetch more pages).
+        available = sorted({s for c in (data.get("availableChannels") or []) for s in c.get("seasonNumbers", [])})
+        pairs = [(n, 0) for n in available]
+
+    pairs.sort(key=lambda p: p[0])
+    return pairs
 
 
 def fetch_episodes(show_id: str, store: Store, *, skip: int, count: int) -> list[dict[str, Any]]:

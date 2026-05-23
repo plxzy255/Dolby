@@ -140,20 +140,22 @@ def mux(
     for i, _ in enumerate(info.audios):
         cmd += ["-map", f"0:a:{i}"]
 
-    # Text subs only by default; optionally include bitmap as passthrough.
-    text_positions = [info.all_subs().index(s) for s in info.text_subs]
-    bitmap_positions = [info.all_subs().index(s) for s in info.bitmap_subs]
-    for i in text_positions:
-        cmd += ["-map", f"0:s:{i}?"]
+    # Map subtitles by absolute input stream index so codec-class splitting
+    # doesn't reorder them (a `0:s:N` index refers to subtitle-only ordering
+    # in the input — using the original absolute index avoids the ambiguity
+    # entirely and lets us set per-output-stream codec choices below).
+    sub_codecs: list[str] = []  # codec per output subtitle stream, in order
+    for s in info.text_subs:
+        cmd += ["-map", f"0:{s.index}?"]
+        sub_codecs.append("mov_text")
     if include_bitmap_subs_as_passthrough:
-        for i in bitmap_positions:
-            cmd += ["-map", f"0:s:{i}?"]
+        for s in info.bitmap_subs:
+            cmd += ["-map", f"0:{s.index}?"]
+            sub_codecs.append("copy")
 
     cmd += ["-c:v", "copy", "-c:a", "copy"]
-    if info.text_subs:
-        cmd += ["-c:s", "mov_text"]
-    elif include_bitmap_subs_as_passthrough and info.bitmap_subs:
-        cmd += ["-c:s", "copy"]
+    for i, codec in enumerate(sub_codecs):
+        cmd += [f"-c:s:{i}", codec]
 
     # Default audio track flag
     if info.audios:

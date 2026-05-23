@@ -105,7 +105,14 @@ def resolve_metadata(
             title=None, description=None, release_date_ms=None,
             images={}, roles_summary=None, rating_display=None, raw={},
         )
-        if kind == "tvShow" and season is not None and episode is not None:
+        if kind == "tvShow":
+            if season is None or episode is None:
+                print(
+                    "TV mode requires --season and --episode (or an SxxExx filename) "
+                    "to fetch episode metadata; refusing to fall back to movie tagging.",
+                    file=sys.stderr,
+                )
+                return None
             return apple_tv.fetch_episode(fake_hit, season, episode, store)
         return apple_tv.fetch_movie(fake_hit, store)
 
@@ -130,7 +137,14 @@ def resolve_metadata(
     else:
         chosen = hits[0]
 
-    if kind == "tvShow" and season is not None and episode is not None:
+    if kind == "tvShow":
+        if season is None or episode is None:
+            print(
+                f"TV match {chosen.title!r} chosen but season/episode missing; "
+                "pass --season/--episode or use an SxxExx filename. Skipping metadata.",
+                file=sys.stderr,
+            )
+            return None
         return apple_tv.fetch_episode(chosen, season, episode, store)
     return apple_tv.fetch_movie(chosen, store)
 
