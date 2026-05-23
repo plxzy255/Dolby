@@ -794,6 +794,32 @@ The inventory pass checks the selected group against
 whether the matching stream is top-level main content or an
 `InterstitialAssets/...movpkg` child package.
 
+### Local downloaded package sweep (2026-05-23)
+
+The local TV.app media directory currently contains two top-level
+downloaded episode packages. Interstitial child packages are present
+inside those episodes, but they are not standalone main-content
+downloads.
+
+```bash
+uv run python -m dolby_tool movpkg-scan "/Users/psp/Movies/TV/Media.localized"
+```
+
+Current scan result:
+
+| Package | Inventory verdict | Complete main audio | Atmos status |
+|---|---|---|---|
+| `Prehistoric Planet/Season 3/Grass Lands.movpkg` | `movpkg_atmos_variant_missing_or_incomplete` | `audio-stereo-160_download-ap-aoc.tv.apple.com`, 2ch, 49,868,699 media bytes, 416 `.frag`, 9 `.initfrag`; normal and AD rows both map to the same complete stereo stream | No complete main Atmos; advertised/inferred Atmos is missing or incomplete for main content |
+| `Ted Lasso/Season 1/The Hope That Kills You.movpkg` | `movpkg_atmos_variant_missing_or_incomplete` | `audio-stereo-128_download-ap-aoc.tv.apple.com`, 2ch, 31,684,679 media bytes, 370 `.frag`, 10 `.initfrag`; normal and AD rows both map to the same complete stereo stream | No complete main Atmos; Atmos appears only outside main content |
+
+This sweep does not prove that every Apple TV+ download on this account
+will omit main Atmos, because only two top-level packages are currently
+available locally. It does prove that the two downloaded Atmos-capable
+Apple TV+ test titles currently on disk do not contain a complete
+top-level main Atmos stream. The next useful package-content test is to
+download another Apple TV+ Atmos title or episode and rerun
+`dolby-tool movpkg-scan` before playback capture.
+
 Clean downloaded-playback capture recipe:
 
 1. Disable network/Wi-Fi so playback must use the local download.

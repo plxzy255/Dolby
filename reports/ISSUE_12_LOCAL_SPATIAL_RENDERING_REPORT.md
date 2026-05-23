@@ -270,6 +270,10 @@ These match the focus areas in #10, #6, #4 and add parser hooks from the QuickTi
 - Added: `dolby-tool hls-serve <folder> --open quicktime` for a
   Range-capable localhost server that matches the successful local-HLS
   playback setup.
+- Added: `dolby-tool movpkg-scan <TV media root>` to batch-scan top-level
+  downloaded TV.app packages and skip interstitial child `.movpkg`
+  packages. Current local scan finds only `Grass Lands` and `The Hope
+  That Kills You`, and both lack complete top-level main Atmos.
 - Optional future investigation: confirm whether `qc+3` asbdFormatID is exclusively emitted by FigStreamPlayer for HLS Atmos by capturing more Apple TV+ titles and at least one non-Apple HLS Atmos source if available.
 
 ## Acceptance-criteria check

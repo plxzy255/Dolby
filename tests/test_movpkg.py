@@ -1,6 +1,12 @@
 from pathlib import Path
 
-from dolby_tool.movpkg import analyze_movpkg, movpkg_summary_markdown
+from dolby_tool.movpkg import (
+    analyze_movpkg,
+    find_top_level_movpkgs,
+    movpkg_scan_markdown,
+    movpkg_summary_markdown,
+    scan_movpkgs,
+)
 
 
 def _write_stream(
@@ -107,3 +113,27 @@ def test_movpkg_inventory_detects_complete_main_atmos_not_selected(tmp_path):
     assert summary["inventory_verdict"] == "movpkg_atmos_variant_present_but_not_selected"
     atmos_rows = [row for row in summary["audio_table"] if row["group"] == "audio-atmos_download-ap-aoc.tv.apple.com"]
     assert any(row["has_complete_main_stream"] is True for row in atmos_rows)
+
+
+def test_movpkg_scan_skips_interstitial_child_packages(tmp_path):
+    season = tmp_path / "Season"
+    episode = season / "Episode.movpkg"
+    child = episode / "InterstitialAssets" / "preroll.movpkg"
+    episode.mkdir(parents=True)
+    child.mkdir(parents=True)
+    _write_master(episode)
+    _write_master(child)
+    _write_stream(episode, "1-main-stereo", group=128, complete="YES", bytes_stored=31_684_679)
+    _write_stream(child, "1-interstitial-atmos", group=2448, complete="YES", bytes_stored=450_734)
+
+    assert find_top_level_movpkgs(season) == [episode]
+
+    scan = scan_movpkgs(season)
+
+    assert scan["package_count"] == 1
+    assert scan["packages"][0]["movpkg"] == str(episode)
+    assert scan["packages"][0]["inventory_verdict"] == "movpkg_atmos_variant_missing_or_incomplete"
+    assert "audio-stereo-128_download-ap-aoc.tv.apple.com" in scan["packages"][0]["complete_main_audio"][0]
+    rendered = movpkg_scan_markdown(scan)
+    assert "top-level packages: 1" in rendered
+    assert "No complete main Atmos" in rendered
