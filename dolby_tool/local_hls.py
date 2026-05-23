@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import shutil
 import subprocess
 import threading
 import xml.etree.ElementTree as ET
@@ -224,6 +225,154 @@ def prepare_hls_summary_markdown(summary: dict[str, object]) -> str:
             f"{row.get('media_bytes_stored')} |"
         )
     return "\n".join(lines) + "\n"
+
+
+def package_hls_from_file(
+    input_path: str | Path,
+    output_dir: str | Path,
+    *,
+    overwrite: bool = False,
+    audio_stream: int = 0,
+    segment_time: float = 6.0,
+    split_audio_group: bool = True,
+) -> dict[str, object]:
+    """Stream-copy a local media file into fMP4 HLS for QuickTime/Safari controls."""
+    source = Path(input_path).expanduser().resolve()
+    output = Path(output_dir).expanduser().resolve()
+    if not source.is_file():
+        raise ValueError(f"Input media file does not exist: {source}")
+    if audio_stream < 0:
+        raise ValueError("audio_stream must be >= 0")
+    if segment_time <= 0:
+        raise ValueError("segment_time must be > 0")
+
+    if output.exists() and any(output.iterdir()):
+        if not overwrite:
+            raise ValueError(f"Output directory is not empty: {output}")
+        _clear_directory(output)
+    output.mkdir(parents=True, exist_ok=True)
+
+    var_stream_map = (
+        "v:0,agroup:audio,name:video "
+        "a:0,agroup:audio,language:eng,name:English,default:yes"
+        if split_audio_group
+        else "v:0,a:0,name:main"
+    )
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-y" if overwrite else "-n",
+        "-i",
+        str(source),
+        "-map",
+        "0:v:0",
+        "-map",
+        f"0:a:{audio_stream}",
+        "-c",
+        "copy",
+        "-f",
+        "hls",
+        "-hls_time",
+        _format_float(segment_time),
+        "-hls_playlist_type",
+        "vod",
+        "-hls_segment_type",
+        "fmp4",
+        "-hls_flags",
+        "independent_segments",
+        "-master_pl_name",
+        "master.m3u8",
+        "-var_stream_map",
+        var_stream_map,
+        "-hls_segment_filename",
+        str(output / "stream_%v_%04d.m4s"),
+        str(output / "stream_%v.m3u8"),
+    ]
+    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    stderr_lines = result.stderr.splitlines()
+    return {
+        "source": str(source),
+        "output_dir": str(output),
+        "master_playlist": "master.m3u8",
+        "audio_stream": audio_stream,
+        "segment_time": segment_time,
+        "split_audio_group": split_audio_group,
+        "playlists": _hls_playlist_inventory(output),
+        "ffmpeg_stderr_tail": stderr_lines[-20:],
+    }
+
+
+def package_hls_summary_markdown(summary: dict[str, object]) -> str:
+    lines = ["# Local HLS package summary\n"]
+    lines.append(f"- source: `{summary['source']}`")
+    lines.append(f"- output: `{summary['output_dir']}`")
+    lines.append(f"- master playlist: `{summary['master_playlist']}`")
+    lines.append(f"- audio stream: `{summary['audio_stream']}`")
+    lines.append(f"- split audio group: `{summary['split_audio_group']}`")
+    lines.append("")
+    lines.append("| playlist | media segments | init maps | referenced bytes |")
+    lines.append("| --- | ---: | ---: | ---: |")
+    for playlist in summary.get("playlists", []):
+        row = playlist if isinstance(playlist, dict) else {}
+        lines.append(
+            "| "
+            f"`{row.get('playlist')}` | "
+            f"{row.get('segments')} | "
+            f"{row.get('init_maps')} | "
+            f"{row.get('bytes')} |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _clear_directory(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    for child in path.iterdir():
+        if child.is_dir():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+
+
+def _format_float(value: float) -> str:
+    return f"{value:g}"
+
+
+def _hls_playlist_inventory(output: Path) -> list[dict[str, object]]:
+    rows = []
+    for playlist in sorted(output.glob("*.m3u8")):
+        references = _playlist_references(playlist)
+        segment_uris = [uri for uri in references["segments"] if not uri.endswith(".m3u8")]
+        init_uris = references["init_maps"]
+        byte_total = 0
+        for uri in [*init_uris, *segment_uris]:
+            path = output / uri
+            if path.exists():
+                byte_total += path.stat().st_size
+        rows.append(
+            {
+                "playlist": playlist.name,
+                "segments": len(segment_uris),
+                "init_maps": len(init_uris),
+                "bytes": byte_total,
+            }
+        )
+    return rows
+
+
+def _playlist_references(path: Path) -> dict[str, list[str]]:
+    init_maps = []
+    segments = []
+    for line in _read_playlist(path).splitlines():
+        line = line.strip()
+        if line.startswith("#EXT-X-MAP:"):
+            marker = 'URI="'
+            if marker in line:
+                init_maps.append(line.split(marker, 1)[1].split('"', 1)[0])
+            continue
+        if not line or line.startswith("#"):
+            continue
+        segments.append(line)
+    return {"init_maps": init_maps, "segments": segments}
 
 
 def _master_playlist_path(movpkg: Path) -> Path:

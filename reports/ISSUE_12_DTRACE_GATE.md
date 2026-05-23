@@ -960,6 +960,10 @@ Tooling follow-up: `dolby-tool tvlog-parse` now parses saved compact raw logs
 into the normal structured capture summary, and
 `dolby-tool tvlog-capture --profile local-player` uses a broader
 QuickTime/Safari/WebKit predicate for future local-player controls.
+`dolby-tool hls-package <local media file> <folder>` now stream-copies a
+normal local file into fMP4 HLS with a separate audio group by default,
+so the QuickTime local-HLS path no longer depends on first having a
+persisted-HLS `.movpkg`.
 `dolby-tool hls-prepare <local.movpkg> <folder>` now flattens simple
 persisted-HLS packages into a serveable HLS folder.
 `dolby-tool hls-serve <folder> --open quicktime` now provides the
@@ -994,6 +998,30 @@ Fresh end-to-end confirmation (2026-05-23): using the merged tooling,
 `atmos`, HLS audio codec `ec-3`, current/best audio
 `ec+3 ch=16 48000 Hz spatialization=yes`, Atmos decoder active, OAR active,
 forced 7.1.4 Atmos, and AUSpatialMixer layouts `Atmos_7_1_4`, `Stereo`.
+
+Direct-file HLS packaging follow-up (2026-05-23): the local-HLS workflow
+was made directly reproducible from a normal local file via:
+
+```bash
+uv run python -m dolby_tool hls-package \
+  .tmp/remux_variants/blood_bone_clip_faststart.mp4 \
+  .tmp/hls_package_cli_check --overwrite
+```
+
+The generated `master.m3u8` uses an HLS audio group:
+
+```text
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="group_audio",...URI="stream_English.m3u8"
+#EXT-X-STREAM-INF:...,AUDIO="group_audio"
+stream_video.m3u8
+```
+
+`ffprobe` on the generated HLS master preserved the relevant source
+signals: video `dvh1`, audio `ec-3`, Dolby Digital Plus + Dolby Atmos,
+5.1(side), 576 kb/s. This is packaging evidence, not a new playback
+capture. The next live control is to serve that generated folder with
+`hls-serve --open quicktime` and capture with
+`tvlog-capture --profile local-player`.
 
 ## Bottom line (2026-05-23)
 

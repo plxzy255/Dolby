@@ -12,6 +12,8 @@ import uvicorn
 from .local_hls import (
     create_hls_server,
     open_hls_url,
+    package_hls_from_file,
+    package_hls_summary_markdown,
     playlist_url,
     prepare_hls_from_movpkg,
     prepare_hls_summary_markdown,
@@ -49,6 +51,9 @@ def main() -> None:
         return
     if len(sys.argv) > 1 and sys.argv[1] == "hls-prepare":
         _main_hls_prepare(sys.argv[2:])
+        return
+    if len(sys.argv) > 1 and sys.argv[1] == "hls-package":
+        _main_hls_package(sys.argv[2:])
         return
 
     parser = argparse.ArgumentParser(prog="dolby-tool")
@@ -203,6 +208,35 @@ def _main_hls_prepare(argv: list[str]) -> None:
         print(json.dumps(summary, indent=2, sort_keys=True))
     else:
         print(prepare_hls_summary_markdown(summary))
+
+
+def _main_hls_package(argv: list[str]) -> None:
+    parser = argparse.ArgumentParser(prog="dolby-tool hls-package")
+    parser.add_argument("input", help="Local media file to stream-copy into fMP4 HLS.")
+    parser.add_argument("output_dir", help="Output HLS directory for hls-serve.")
+    parser.add_argument("--overwrite", action="store_true", help="Allow replacing an existing output dir.")
+    parser.add_argument("--audio-stream", type=int, default=0, help="Zero-based input audio stream to map.")
+    parser.add_argument("--segment-time", type=float, default=6.0, help="Target HLS segment duration.")
+    parser.add_argument(
+        "--combined",
+        action="store_true",
+        help="Mux audio and video into one media playlist instead of a separate audio group.",
+    )
+    parser.add_argument("--json", action="store_true", help="Print JSON instead of Markdown.")
+    args = parser.parse_args(argv)
+
+    summary = package_hls_from_file(
+        args.input,
+        args.output_dir,
+        overwrite=args.overwrite,
+        audio_stream=args.audio_stream,
+        segment_time=args.segment_time,
+        split_audio_group=not args.combined,
+    )
+    if args.json:
+        print(json.dumps(summary, indent=2, sort_keys=True))
+    else:
+        print(package_hls_summary_markdown(summary))
 
 
 def _predicate_for_profile(profile: str) -> str:

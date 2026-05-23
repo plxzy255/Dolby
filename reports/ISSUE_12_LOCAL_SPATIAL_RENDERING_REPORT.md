@@ -222,6 +222,14 @@ File-level variants are not expected to change TV.app behavior unless they make 
   - all three played as `local_file` / FigFilePlayer with `ec+3 ch=16`
   - all three kept lower-level Atmos/spatial evidence active but
     `app_spatial_rendering_ever_true = false`
+- Direct local-file-to-HLS packaging control:
+  - added `dolby-tool hls-package <input> <folder>` to stream-copy a
+    normal local file into fMP4 HLS without requiring a pre-existing
+    persisted-HLS `.movpkg`
+  - default output uses a separate HLS audio group, closer to the
+    Apple-managed HLS shape than a plain local MP4/M4V file
+  - intended workflow is `hls-package` -> `hls-serve --open quicktime` ->
+    `tvlog-capture --profile local-player`
 
 ## What remains to test
 
@@ -277,6 +285,10 @@ These match the focus areas in #10, #6, #4 and add parser hooks from the QuickTi
 - Added: `dolby-tool tvlog-parse` for saved raw logs and
   `dolby-tool tvlog-capture --profile local-player` for QuickTime/Safari
   control captures.
+- Added: `dolby-tool hls-package <local media file> <folder>` to
+  stream-copy a normal local file into fMP4 HLS with a separate HLS audio
+  group by default. This makes the strongest observed non-custom path
+  reproducible without first authoring or obtaining a `.movpkg`.
 - Added: `dolby-tool hls-prepare <local.movpkg> <folder>` to flatten simple
   persisted-HLS packages into the served folder layout.
 - Added: `dolby-tool hls-serve <folder> --open quicktime` for a
@@ -296,6 +308,8 @@ These match the focus areas in #10, #6, #4 and add parser hooks from the QuickTi
 - [x] QuickTime Player local-file control captured; still FigFilePlayer/ec+3 but with stronger lower-level CoreAudio spatialization evidence.
 - [x] QuickTime Player local-HLS control captured; FigStreamPlayer with Atmos/CoreAudio spatial mixer evidence.
 - [x] QuickTime Player local-HLS path reproduced with merged `hls-prepare`, `hls-serve`, and `tvlog-capture --profile local-player` tooling.
+- [x] Direct local-file-to-HLS packaging path added via `hls-package` so
+  QuickTime local HTTP HLS can be produced from ordinary local files.
 - [x] Safari local-HLS launch attempted; current result is failed-page tabs and 0 playback events, so Safari remains unproven rather than a working path.
 - [x] Local-file MP4 faststart, M4V, and MOV remux variants tested; all stayed FigFilePlayer/ec+3/app-false.
 - [x] Local HLS packaging test completed for QuickTime; TV.app URL-scheme launch did not work.
