@@ -258,6 +258,8 @@ These match the focus areas in #10, #6, #4 and add parser hooks from the QuickTi
 - Added: `dolby-tool tvlog-parse` for saved raw logs and
   `dolby-tool tvlog-capture --profile local-player` for QuickTime/Safari
   control captures.
+- Added: `dolby-tool hls-prepare <local.movpkg> <folder>` to flatten simple
+  persisted-HLS packages into the served folder layout.
 - Added: `dolby-tool hls-serve <folder> --open quicktime` for a
   Range-capable localhost server that matches the successful local-HLS
   playback setup.

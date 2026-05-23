@@ -5,13 +5,14 @@ import contextlib
 import os
 import subprocess
 import threading
+import xml.etree.ElementTree as ET
 from collections.abc import Iterator
 from functools import partial
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import BinaryIO
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 
 class RangeRequestHandler(SimpleHTTPRequestHandler):
@@ -151,3 +152,163 @@ def open_hls_url(url: str, app: str) -> None:
         "safari": "Safari",
     }[app]
     subprocess.run(["open", "-a", app_name, url], check=False)
+
+
+def prepare_hls_from_movpkg(
+    movpkg: str | Path,
+    output_dir: str | Path,
+    *,
+    overwrite: bool = False,
+) -> dict[str, object]:
+    """Flatten a simple persisted-HLS `.movpkg` into a serveable HLS folder."""
+    source = Path(movpkg).expanduser().resolve()
+    output = Path(output_dir).expanduser().resolve()
+    if not source.is_dir():
+        raise ValueError(f".movpkg directory does not exist: {source}")
+    if output.exists() and any(output.iterdir()) and not overwrite:
+        raise ValueError(f"Output directory is not empty: {output}")
+    output.mkdir(parents=True, exist_ok=True)
+
+    master_source = _master_playlist_path(source)
+    (output / "master.m3u8").write_text(_read_playlist(master_source), encoding="utf-8")
+
+    stream_outputs: list[dict[str, object]] = []
+    for stream in _boot_streams(source):
+        stream_dir = source / stream["path"]
+        stream_info = _parse_stream_info(stream_dir)
+        playlist_name = _url_basename(stream["network_url"]) or stream_info["playlist"].name
+        segment_name = _segment_uri_from_playlist(stream_info["playlist"])
+        segment_path = output / segment_name
+
+        with segment_path.open("wb") as f:
+            for fragment in stream_info["fragments"]:
+                f.write((stream_dir / fragment["path"]).read_bytes())
+
+        (output / playlist_name).write_text(_read_playlist(stream_info["playlist"]), encoding="utf-8")
+        stream_outputs.append(
+            {
+                "stream_id": stream["id"],
+                "playlist": playlist_name,
+                "segment": segment_name,
+                "bytes": segment_path.stat().st_size,
+                "fragments": len(stream_info["fragments"]),
+                "media_bytes_stored": stream_info["media_bytes_stored"],
+            }
+        )
+
+    return {
+        "source": str(source),
+        "output_dir": str(output),
+        "master_playlist": "master.m3u8",
+        "streams": stream_outputs,
+    }
+
+
+def prepare_hls_summary_markdown(summary: dict[str, object]) -> str:
+    lines = ["# Local HLS prepare summary\n"]
+    lines.append(f"- source: `{summary['source']}`")
+    lines.append(f"- output: `{summary['output_dir']}`")
+    lines.append(f"- master playlist: `{summary['master_playlist']}`")
+    lines.append("")
+    lines.append("| stream ID | playlist | segment | fragments | bytes | media bytes stored |")
+    lines.append("| --- | --- | --- | ---: | ---: | ---: |")
+    for stream in summary.get("streams", []):
+        row = stream if isinstance(stream, dict) else {}
+        lines.append(
+            "| "
+            f"`{row.get('stream_id')}` | "
+            f"`{row.get('playlist')}` | "
+            f"`{row.get('segment')}` | "
+            f"{row.get('fragments')} | "
+            f"{row.get('bytes')} | "
+            f"{row.get('media_bytes_stored')} |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _master_playlist_path(movpkg: Path) -> Path:
+    boot = _parse_xml(movpkg / "boot.xml")
+    data_item = boot.find(".//{*}DataItem[{*}Role='Master']")
+    if data_item is None:
+        raise ValueError(f"No master playlist DataItem in {movpkg / 'boot.xml'}")
+    data_path = data_item.findtext("{*}DataPath")
+    if not data_path:
+        raise ValueError("Master playlist DataItem has no DataPath")
+    data_dir = boot.find(".//{*}DataItems")
+    directory = data_dir.attrib.get("Directory", "Data") if data_dir is not None else "Data"
+    return movpkg / directory / data_path
+
+
+def _boot_streams(movpkg: Path) -> list[dict[str, str]]:
+    boot = _parse_xml(movpkg / "boot.xml")
+    streams = []
+    for stream in boot.findall(".//{*}Streams/{*}Stream"):
+        stream_id = stream.attrib.get("ID")
+        path = stream.attrib.get("Path")
+        network_url = stream.attrib.get("NetworkURL", "")
+        complete = stream.findtext("{*}Complete")
+        if not stream_id or not path:
+            continue
+        if complete and complete.upper() != "YES":
+            continue
+        streams.append({"id": stream_id, "path": path, "network_url": network_url})
+    if not streams:
+        raise ValueError(f"No complete streams found in {movpkg / 'boot.xml'}")
+    return streams
+
+
+def _parse_stream_info(stream_dir: Path) -> dict[str, object]:
+    info = _parse_xml(stream_dir / "StreamInfoBoot.xml")
+    playlist_rel = info.findtext(".//{*}MediaPlaylist/{*}PathToLocalCopy")
+    if not playlist_rel:
+        raise ValueError(f"No local media playlist in {stream_dir / 'StreamInfoBoot.xml'}")
+    fragments = []
+    for element in info.findall(".//{*}MediaInitializationSegments/{*}ISEG"):
+        fragments.append(_fragment_row(element))
+    for element in sorted(
+        info.findall(".//{*}MediaSegments/{*}SEG"),
+        key=lambda e: int(e.attrib.get("SeqNum", "0")),
+    ):
+        fragments.append(_fragment_row(element))
+    media_bytes = int(info.findtext("{*}MediaBytesStored") or "0")
+    return {
+        "playlist": stream_dir / playlist_rel,
+        "fragments": fragments,
+        "media_bytes_stored": media_bytes,
+    }
+
+
+def _fragment_row(element: ET.Element) -> dict[str, object]:
+    path = element.attrib.get("PATH")
+    if not path:
+        raise ValueError("StreamInfo fragment is missing PATH")
+    return {
+        "path": path,
+        "len": int(element.attrib.get("Len", "0")),
+        "off": int(element.attrib.get("Off", "0")),
+    }
+
+
+def _segment_uri_from_playlist(path: Path) -> str:
+    text = _read_playlist(path)
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        return line
+    raise ValueError(f"No segment URI found in {path}")
+
+
+def _read_playlist(path: Path) -> str:
+    return path.read_text(errors="replace").rstrip("\x00\r\n") + "\n"
+
+
+def _url_basename(url: str) -> str | None:
+    parsed = urlparse(url)
+    if not parsed.path:
+        return None
+    return Path(parsed.path).name
+
+
+def _parse_xml(path: Path) -> ET.Element:
+    return ET.fromstring(path.read_text(encoding="utf-8"))

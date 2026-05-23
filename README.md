@@ -59,9 +59,11 @@ uv run python -m dolby_tool tvlog-capture --profile local-player --seconds 60
 ```
 
 ### Local HLS Serve
-Serve a prepared HLS folder with byte-range support for QuickTime/Safari tests:
+Flatten a simple persisted-HLS `.movpkg` into a normal HLS folder, then serve
+it with byte-range support for QuickTime/Safari tests:
 
 ```bash
+uv run python -m dolby_tool hls-prepare "/path/to/Test.movpkg" .tmp/alt_hls --overwrite
 uv run python -m dolby_tool hls-serve .tmp/alt_hls --open quicktime
 ```
 
