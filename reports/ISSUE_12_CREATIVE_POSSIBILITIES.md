@@ -326,6 +326,13 @@ Execution update:
   child packages. The current local library scan finds two top-level
   packages, `Grass Lands` and `The Hope That Kills You`; both have
   complete main stereo and no complete top-level main Atmos.
+- Local-file remux/container variants were tested from the same `Blood
+  and Bone.mp4` source as 180s lossless MP4 faststart, M4V, and MOV
+  clips. MP4/M4V preserved `dvh1`; MOV exposed `hev1`. All three played
+  in TV.app as `local_file` / FigFilePlayer with `ec+3 ch=16`, active
+  lower-level Atmos/spatial evidence, and app-level spatial rendering
+  false. Container remuxing did not move TV.app onto the desired
+  `qc+3` / app-spatial-true path.
 
 Keep the local `.movpkg` recipe as a lower-priority diagnostic only. It is
 still useful if the goal is to test how TV.app handles a locally produced

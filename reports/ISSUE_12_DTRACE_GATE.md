@@ -964,6 +964,27 @@ QuickTime/Safari/WebKit predicate for future local-player controls.
 persisted-HLS packages into a serveable HLS folder.
 `dolby-tool hls-serve <folder> --open quicktime` now provides the
 Range-capable localhost server needed for this workflow.
+`dolby-tool tvlog-capture` now prefers the source-consistent pipeline
+engine when a local-file capture contains stale/surrogate logs from both
+FigFilePlayer and FigStreamPlayer.
+
+Local remux/container follow-up (2026-05-23): 180s lossless clips were
+created from the same `Blood and Bone.mp4` source as MP4 faststart, M4V,
+and MOV variants. MP4/M4V preserved `dvh1`; MOV exposed `hev1`.
+TV.app played all three as `local_file` / FigFilePlayer with runtime
+`ec+3 ch=16`, active lower-level Atmos/spatial evidence, forced 7.1.4
+Atmos, and AUSpatialMixer layouts `Atmos_7_1_4`, `Stereo`, but app-level
+spatial rendering remained false:
+
+```text
+captures/alt_paths/20260523_tv_remux_mp4.json
+captures/alt_paths/20260523_tv_remux_m4v_direct.json
+captures/alt_paths/20260523_tv_remux_mov.json
+```
+
+Conclusion: MP4/M4V/MOV remuxing does not change the TV.app local-file
+spatial outcome. It preserves the lower-level Atmos path, but does not
+produce `qc+3` or `mediaFormatinfo ... is rendering spatial audio = true`.
 
 Fresh end-to-end confirmation (2026-05-23): using the merged tooling,
 `hls-prepare` -> `hls-serve` -> QuickTime ->

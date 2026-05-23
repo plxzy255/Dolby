@@ -793,7 +793,7 @@ class LogCapture:
             + [e["pipeline_engine"] for e in pipeline_events if e.get("pipeline_engine")]
         )
         if pipeline_engines:
-            playback["pipeline_engine"] = pipeline_engines[-1]
+            playback["pipeline_engine"] = _choose_pipeline_engine(playback["source"], pipeline_engines)
             playback["pipeline_engines_observed"] = pipeline_engines
 
         if renderer_events:
@@ -920,6 +920,15 @@ def _format_audio_summary(audio: dict[str, Any]) -> str:
     if audio.get("spatialization") is not None:
         parts.append(f"spatialization={audio.get('spatialization')}")
     return " ".join(parts)
+
+
+def _choose_pipeline_engine(source: str, engines: list[str]) -> str:
+    """Choose the engine most likely attached to the summarized playback source."""
+    if source == "local_file" and "FigFilePlayer" in engines:
+        return "FigFilePlayer"
+    if source == "hls" and "FigStreamPlayer" in engines:
+        return "FigStreamPlayer"
+    return engines[-1]
 
 
 def _hls_audio_group_kind(audio_group: str | None, audio_codec: str | None) -> str | None:
