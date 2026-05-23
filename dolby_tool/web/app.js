@@ -866,6 +866,8 @@ function renderCaptureSummary(summary) {
   if (p.audio && p.audio.is_atmos) pills.appendChild(el('span', { class: 'pill good' }, 'Atmos'));
   if (p.downloaded_hls_verdict === 'movpkg_atmos_variant_present_but_not_selected') {
     pills.appendChild(el('span', { class: 'pill warn' }, '.movpkg Atmos seen, stereo selected'));
+  } else if (p.downloaded_hls_verdict === 'movpkg_atmos_variant_missing_or_incomplete') {
+    pills.appendChild(el('span', { class: 'pill warn' }, '.movpkg Atmos missing/incomplete'));
   } else if (p.downloaded_hls_verdict === 'movpkg_figstreamplayer_selected_stereo') {
     pills.appendChild(el('span', { class: 'pill warn' }, '.movpkg stereo selected'));
   }

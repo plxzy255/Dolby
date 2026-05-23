@@ -46,6 +46,18 @@ Add multiple files to the comparison. The table highlights the winner per dimens
 ### TV Capture
 Click **Start Capture**, play something in TV.app, click **Stop**. The app runs `log stream` with predicates tuned for `mediaplaybackd`, `VTDecoderXPCService`, `coremediaxpc`, and `audiomxd`, parses out `FigAlternate` / `FigFilePlayer` / `CodecType` / `AudioFormat` events, and shows a structured summary of what was actually playing — DV profile, HW decoder FourCC, audio format, channel count, spatialization, peak/average bitrate.
 
+### `.movpkg` Inventory
+For downloaded TV.app packages, inspect local HLS manifests and stream inventories:
+
+```bash
+uv run python -m dolby_tool movpkg "/path/to/Episode.movpkg" \
+  --selected-group audio-stereo-128_download-ap-aoc.tv.apple.com
+```
+
+This reports audio groups, codecs, roles/accessibility flags, `Complete` state,
+local byte/segment counts, and an inventory verdict such as
+`movpkg_atmos_variant_missing_or_incomplete`.
+
 ## Project layout
 
 ```
@@ -55,6 +67,7 @@ dolby_tool/
   inspect.py      # ffprobe → structured spec
   compare.py      # diff/rank logic
   tvlog.py        # log stream subprocess + parser
+  movpkg.py       # downloaded .movpkg inventory parser
   web/
     index.html
     app.js

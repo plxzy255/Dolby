@@ -50,20 +50,61 @@ as `.movpkg` bundles. Inside each `.movpkg`:
 This means `.movpkg` is a documented Apple package format for "persisted
 HLS." It is the on-disk form produced by `AVAssetDownloadTask`, and it is
 what TV.app uses to play downloads from Apple TV+ offline. TV.app already
-knows how to open a `.movpkg` directly. Playback of a `.movpkg` goes through
-the CoreMedia HLS pipeline (FigStreamPlayer / FigStreamProxy), not
-FigFilePlayer, because the asset is HLS-backed.
+knows how to open Apple-managed `.movpkg` downloads directly. Playback of
+the tested Apple-managed `.movpkg` goes through the CoreMedia HLS pipeline
+(FigStreamPlayer / FigStreamProxy), not FigFilePlayer, because the asset is
+HLS-backed.
 
-This is the highest-confidence creative path.
+The later `Grass Lands.movpkg` inspection changes the ranking: `.movpkg`
+is the right infrastructure, but not a complete solution by itself. The
+tested package engaged FigStreamPlayer and permitted multichannel, and its
+master playlist advertised `audio-atmos_download-ap-aoc.tv.apple.com`.
+However, the local Atmos stream was incomplete (`Complete=NO`,
+`MediaBytesStored=0`) while the normal English stereo stream was complete
+and selected. The obstacle is therefore TV.app trust / package completeness
+and title/account/device download policy, not just the container format.
 
 ## Ranked creative paths
 
 Ranked by confidence that the path actually flips the renderer state, given
 what we already know.
 
-### Tier A — most likely to actually engage FigStreamPlayer + qc+3
+### Tier A — Apple-managed paths most likely to answer the remaining question
 
-1. **Build a `.movpkg` from the local Atmos file via `AVAssetDownloadTask`**
+1. **Stream the same Apple title online**
+   - Play the same Prehistoric Planet / Grass Lands title online in TV.app
+     on the same route.
+   - Capture before playback starts.
+   - Expected: if the title/account/device/route can receive Atmos online,
+     the capture should show the online HLS group choosing Atmos or a
+     Dolby-family runtime path (`qc+3` / app-level spatial true if the known
+     Apple TV+ path is reached).
+   - Falsification: if the online stream also resolves to stereo, the issue
+     is not only download completeness for this title; it may be title,
+     account, regional, route, or server-side policy.
+
+2. **Download a different known Apple TV+ Atmos title**
+   - Pick a title that advertises Atmos in TV.app and download it with the
+     same Highest Quality setting.
+   - Inspect its `.movpkg` inventory for `audio-atmos`, `ec-3`,
+     `CHANNELS="16/JOC"`, `Complete=YES`, `MediaBytesStored`, and segment
+     counts.
+   - Expected: at least one title may download a complete playable Atmos
+     group. If so, capture whether TV.app selects it offline.
+   - Falsification: if multiple Apple TV+ Atmos titles advertise Atmos but
+     all persist only stereo locally, offline downloads on this
+     device/account/route likely do not include playable Atmos.
+
+3. **Compare title/account/device behavior**
+   - Compare the same title online vs downloaded, and compare multiple
+     Atmos-marked titles after download.
+   - If available, compare another Mac/account/route with the same title.
+   - Expected: separates "this specific package is incomplete" from a
+     broader TV.app download policy.
+
+### Tier B — local `.movpkg` construction; lower confidence after Grass Lands
+
+4. **Build a `.movpkg` from the local Atmos file via `AVAssetDownloadTask`**
    - Stand up a tiny local HTTP server (e.g. `python -m http.server`).
    - Package the local Atmos m4v as a real HLS variant via `MP4Box -dash`
      or any HLS packager (we have ffmpeg + MP4Box installed; `gpac/MP4Box`
@@ -75,34 +116,35 @@ what we already know.
    - Double-click the `.movpkg` in Finder, or open via
      `open -b com.apple.TV /path/to/file.movpkg`.
    - Capture `log stream` with `dolby_tool` while playback runs.
-   - Expected: TV.app routes the asset through FigStreamPlayer, asbdFormatID
-     becomes `qc+3`, and `mediaFormatinfo ... is rendering spatial audio`
-     can flip to `true` on built-in MacBook speakers.
-   - Falsification: if asbdFormatID stays `ec+3`, then `.movpkg` import does
-     not change the engine, and the engine choice is made deeper than
-     "asset type."
+   - Expected: only if TV.app accepts the package as trusted playback and
+     persists/selects the Atmos group, it may route through FigStreamPlayer
+     and reach the desired Dolby/spatial path.
+   - Falsification: if TV.app refuses the package, ignores it, or selects a
+     non-Atmos group, then local `.movpkg` construction is not practical for
+     the TV.app path even though `.movpkg` is HLS-backed.
 
-2. **Hand-author a `.movpkg` against the published schema**
+5. **Hand-author a `.movpkg` against the published schema**
    - `/System/Library/Schemas/HLSMoviePackage.xsd` defines the package
      format. A minimal `boot.xml` with one PersistedStore stream pointing
      at a local fragmented-mp4 file may be enough to make TV.app open it.
-   - Same expected outcome as path 1. This path is cheaper if we can
+   - Same expected outcome as path 4. This path is cheaper if we can
      reproduce a valid `boot.xml` + `root.xml` directly without writing a
      Swift downloader, but it is less Apple-blessed and may hit schema
      validation rejection.
 
-3. **Apple HLS Tools (`mediafilesegmenter` + `mediastreamvalidator`)**
+6. **Apple HLS Tools (`mediafilesegmenter` + `mediastreamvalidator`)**
    - Not installed on this machine. Download from
      `developer.apple.com/download/applications/` (free, Apple ID needed).
    - Once installed, `mediafilesegmenter` produces a canonical HLS bundle
      (master.m3u8 + media.m3u8 + .ts/.m4s segments) without re-encoding the
-     ec-3 / Atmos audio. Pair with paths 1 or 2 above to feed the packager.
+     ec-3 / Atmos audio. Pair with paths 4 or 5 above to feed the packager.
    - This produces the most Apple-canonical HLS package, which gives the
-     highest chance the AVAssetDownloadTask in path 1 will succeed.
+     highest chance the AVAssetDownloadTask in path 4 will succeed, but it
+     still does not solve TV.app trust/package-completeness policy by itself.
 
-### Tier B — promising but unproven
+### Tier C — promising but unproven
 
-4. **TV.app "Live Stream URL" schemes (`itls://`, `itlss://`, `itvls://`,
+7. **TV.app "Live Stream URL" schemes (`itls://`, `itlss://`, `itvls://`,
    `itvlss://`)**
    - These are exposed in TV.app's Info.plist but undocumented. They look
      like Apple's IPTV/cable-provider live stream handlers.
@@ -114,13 +156,13 @@ what we already know.
      through a placeholder UI ("This provider is not supported in your
      region"), this path is dead.
 
-5. **`open -b com.apple.TV http://localhost:8000/master.m3u8` against a
+8. **`open -b com.apple.TV http://localhost:8000/master.m3u8` against a
    local HLS server**
    - TV.app does not advertise generic `http`/`https` handler ownership for
      m3u8, so this is most likely a no-op. Still cheap to try.
-   - Same expected outcome as path 4 if it works.
+   - Same expected outcome as path 7 if it works.
 
-6. **Open via Safari in fullscreen video**
+9. **Open via Safari in fullscreen video**
    - Safari plays HLS via CoreMedia's FigStreamPlayer. Drag an `m3u8` URL
      into Safari, then enter fullscreen video.
    - Expected: same FigStreamPlayer engine TV.app uses for Apple TV+, same
@@ -133,51 +175,111 @@ what we already know.
      events should still appear. Treat Safari's audible result as the
      real signal, not the missing TV-specific log line.
 
-7. **Open in QuickTime via File → Open Location**
+10. **Open in QuickTime via File → Open Location**
    - QuickTime accepts HLS URLs via `Open Location`. Same caveat as Safari:
      QuickTime is not TV.app, so the TV-specific app-level log line will
      not appear, but the underlying CoreMedia engine choice is what
      matters audibly.
 
-### Tier C — unlikely to flip the engine
+### Tier D — unlikely to flip the engine
 
-8. **Library import** (`File → Import` of an mp4/m4v into TV.app library)
+11. **Library import** (`File → Import` of an mp4/m4v into TV.app library)
    - Still a file-backed asset, still FigFilePlayer. Useful only as a
      control to confirm import does not help.
 
-9. **Rename `.m3u8` to `.m4v` and hope TV.app does content sniffing**
+12. **Rename `.m3u8` to `.m4v` and hope TV.app does content sniffing**
    - TV.app will probably honor the UTI and refuse, or treat it as a corrupt
      m4v. Cheap to verify and dismiss.
 
-10. **Force the engine via `defaults` plist or experimental TV.app flags**
+13. **Force the engine via `defaults` plist or experimental TV.app flags**
     - No public defaults are documented for this. Skip unless a specific
       hidden flag is discovered.
 
-### Tier D — out of scope here but worth noting
+### Tier E — out of scope here but worth noting
 
-11. **Custom AVPlayer host app**
+14. **Custom AVPlayer host app**
     - A 50-line SwiftUI macOS app that uses `AVPlayer` against
       `http://localhost:8000/master.m3u8` (or against a `.movpkg`),
       with `playerItem.allowedAudioSpatializationFormats = .multichannel`,
       `playerItem.audioTimePitchAlgorithm = .spectral`, etc.
-    - This is not TV.app, so the "hidden Apple technology in TV.app" framing
-      does not strictly apply, but the underlying CoreMedia / Atmos /
-      spatial-renderer stack is the same. If the local source rendered via
-      this app sounds the same as TV.app + Apple TV+ on the same MacBook
-      Pro Speakers, then the "hidden Apple technology" is just
-      FigStreamPlayer + qc+3, and any small Swift app can use it.
+    - This is not a solution path for the current TV.app/downloaded-content
+      issue. It is retained only as a diagnostic control for separating
+      CoreMedia / Atmos / spatial-renderer behavior from TV.app product
+      behavior.
 
-12. **Music app for Atmos audio-only files**
+15. **Music app for Atmos audio-only files**
     - Apple Music's Atmos catalogue plays through CoreMedia HLS. A local
       `.m4a` with Atmos JOC may go through Music.app's local FigFilePlayer
       path. Same engine question as TV.app, likely same outcome. Mentioned
       here only because it is a second app for comparison.
 
-## Recommended next experiment
+## Recommended next experiments
 
-Run path 1 (`AVAssetDownloadTask` against a local HLS server, then open
-the produced `.movpkg` in TV.app) end-to-end with `dolby_tool.tvlog`
-capture. Concrete order:
+The original recommendation was to build a local `.movpkg` and open it in
+TV.app. The `Grass Lands.movpkg` evidence supersedes that as the primary
+next step: an Apple-managed `.movpkg` already proved the HLS/FigStreamPlayer
+infrastructure, but also proved that an advertised Atmos group can be
+missing or incomplete in the local package.
+
+Run these Apple-managed tests first:
+
+1. Stream `Grass Lands` online in TV.app on the same route and capture before
+   playback starts. Confirm whether online playback selects Atmos / `qc+3` /
+   spatial true.
+2. Download a different Apple TV+ title that advertises Atmos, inspect the
+   `.movpkg`, and check whether the normal English `audio-atmos` stream is
+   `Complete=YES` with local media bytes and segment inventory.
+3. If a different title has complete local Atmos, capture its downloaded
+   playback and verify whether TV.app selects `audio-atmos` or still chooses
+   stereo.
+4. If every downloaded Apple TV+ Atmos title has incomplete local Atmos, the
+   conclusion is: Highest Quality does not download playable Atmos for this
+   title/device/account/route; the stereo result is package contents, not
+   runtime selection.
+
+Execution update:
+
+- `Grass Lands` could not be cleanly forced online while its downloaded
+  package remained registered in TV.app. Normal play still chose
+  `downloaded_movpkg` / `audio-stereo-160_download-ap-aoc.tv.apple.com`.
+  Temporarily hiding the package made the cached library item fail or
+  stay stopped, and the package was restored.
+- A not-downloaded same-season Apple TV+ control, `Desert Lands`, did
+  stream online successfully. Its capture selected
+  `audio-atmos_vod-ap-aoc.tv.apple.com`, reached `qc+3`/16ch, and
+  reported app-level spatial rendering true.
+- A second downloaded Apple TV+ item, `Ted Lasso` / `The Hope That Kills
+  You`, was inspected at
+  `/Users/psp/Movies/TV/Media.localized/TV Shows/Ted Lasso/Season 1/The Hope That Kills You.movpkg`.
+  It has complete top-level main video and complete top-level main
+  `audio-stereo-128_download-ap-aoc.tv.apple.com`, but no complete
+  top-level main-episode Atmos audio stream was found. The only
+  `audio-atmos_download-ap-aoc.tv.apple.com` stream marked
+  `Complete=YES` is inside an `InterstitialAssets/...movpkg` child
+  package with 2 fragments and roughly 450 KB of audio data, so it is
+  not evidence that the full episode downloaded Atmos.
+- The Ted Lasso downloaded-playback capture selected
+  `downloaded_movpkg` / `audio-stereo-128_download-ap-aoc.tv.apple.com`.
+  It still showed transient `ec+3`/16ch lower-level evidence from
+  advertised alternates, but main playback resolved to stereo with
+  app-level spatial rendering false.
+- The remaining high-value test is therefore narrower: find a downloaded
+  Apple TV+ title/episode whose top-level main-episode `audio-atmos`
+  stream is actually `Complete=YES` with local media bytes and segment
+  inventory. If none appear across multiple titles, the practical
+  conclusion is that Highest Quality is not persisting playable main
+  Atmos for this title/device/account/route combination.
+- `dolby-tool movpkg` now automates that inventory check and emits
+  `movpkg_atmos_variant_missing_or_incomplete` when Atmos is advertised
+  but not present as a complete top-level main-content stream.
+
+Keep the local `.movpkg` recipe as a lower-priority diagnostic only. It is
+still useful if the goal is to test how TV.app handles a locally produced
+HLS package, but it is no longer the most practical path for the user's own
+local files unless a TV.app-trusted package with complete Atmos can be
+produced.
+
+Lower-priority local package recipe:
 
 1. Pick the existing local Atmos file already used in Local 1, Local 2,
    Local 6 captures. Keep the same source so the comparison is honest.
@@ -215,22 +317,28 @@ capture. Concrete order:
    - `[AudioFormat qc+3 ...]`
    - `asbdFormatID = qc+3, Dolby Atmos, ..., is rendering spatial audio`
 
-If any of those three appear, the experiment succeeds and we know the gate
-is purely "is the asset HLS-backed." If none of them appear and we get
-`FigFilePlayer` + `ec+3` again, the gate is deeper — probably tied to
-TV.app's media-library / Apple TV+ identity, not the asset format.
+If any of those three appear, the experiment shows that a local HLS package
+can reach the desired TV.app path. If TV.app refuses the package or does not
+select complete Atmos, the gate is deeper — tied to TV.app media-library /
+Apple TV+ identity, package trust, or title/account/device download policy,
+not merely the asset format.
 
 ### Stop conditions
 
 Stop the broader investigation if:
 
-- Path 1 succeeds and shows the renderer flag flipping. Document the
+- An Apple-managed downloaded title has complete local Atmos and TV.app
+  selects it offline. Document the package pattern and capture evidence.
+- Multiple Apple-managed downloaded Atmos titles advertise Atmos but persist
+  incomplete local Atmos groups. Document this as a download-policy/package
+  contents limitation, not a runtime spatialization failure.
+- The lower-priority local `.movpkg` recipe succeeds and shows the renderer flag flipping. Document the
   recipe in this report, file a parser issue to detect the
   `FigStreamPlayer` event for local-`movpkg` playback, and ship a how-to
   in the dolby-tool UI.
-- Path 1 fails. Path 4 / 5 / 6 / 7 are then de-prioritized because they
-  test the same engine choice on different launchers and the engine
-  already declined.
+- The lower-priority local `.movpkg` recipe fails. Paths 7 / 8 / 9 / 10 are
+  then de-prioritized because they test the same HLS-engine idea on
+  different launchers and the TV.app path already declined.
 - Apple HLS Tools cannot be installed and we cannot produce a valid
   fragmented HLS source. In that case the experiment is blocked on
   packaging and the issue should record the blocker rather than spin.
