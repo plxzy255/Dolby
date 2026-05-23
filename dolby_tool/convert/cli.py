@@ -58,6 +58,45 @@ def _clean(s: str) -> str:
     return re.sub(r"[._]+", " ", s).strip()
 
 
+# ISO/IEC 23001-8 string → numeric code map for the values ffprobe surfaces.
+_PRIMARIES = {"bt709": 1, "unknown": 2, "bt470bg": 5, "smpte170m": 6, "bt2020": 9,
+              "smpte428": 10, "smpte431": 11, "smpte432": 12}
+_TRANSFER = {"bt709": 1, "unknown": 2, "bt470bg": 5, "smpte170m": 6, "bt2020-10": 14,
+             "bt2020-12": 15, "smpte2084": 16, "arib-std-b67": 18, "iec61966-2-1": 13}
+_MATRIX = {"bt709": 1, "unknown": 2, "fcc": 4, "bt470bg": 5, "smpte170m": 6,
+           "bt2020nc": 9, "bt2020c": 10}
+
+
+def _resolve_colr_args(args, src: Path) -> tuple[int, int, int, bool] | None:
+    """Return (primaries, transfer, matrix, full_range) or None when not patching.
+
+    Refuses to fall back to an SDR default: ambiguity is reported and skipped
+    so the caller doesn't accidentally mislabel an HDR/DV source as BT.709.
+    """
+    explicit = (args.colr_primaries, args.colr_transfer, args.colr_matrix)
+    if any(v is not None for v in explicit):
+        if any(v is None for v in explicit):
+            print("--colr-primaries/--colr-transfer/--colr-matrix must be passed together; "
+                  "skipping colr patch.", file=sys.stderr)
+            return None
+        return (args.colr_primaries, args.colr_transfer, args.colr_matrix, args.colr_full_range)
+    if not args.colr_from_source:
+        return None
+    info = mux.probe(src)
+    v = info.video.raw
+    p = _PRIMARIES.get((v.get("color_primaries") or "").lower())
+    t = _TRANSFER.get((v.get("color_transfer") or "").lower())
+    m = _MATRIX.get((v.get("color_space") or "").lower())
+    if not (p and t and m):
+        print(f"--colr-from-source: ffprobe returned ambiguous color tags "
+              f"(primaries={v.get('color_primaries')!r}, transfer={v.get('color_transfer')!r}, "
+              f"matrix={v.get('color_space')!r}). Skipping colr patch — pass explicit "
+              "--colr-primaries/--colr-transfer/--colr-matrix instead.", file=sys.stderr)
+        return None
+    fr = (v.get("color_range") or "").lower() == "pc" or args.colr_full_range
+    return (p, t, m, fr)
+
+
 def _pick_interactive(prompt: str, options: list[str]) -> int | None:
     print(prompt, file=sys.stderr)
     for i, opt in enumerate(options, start=1):
@@ -163,15 +202,36 @@ def main_convert(argv: list[str]) -> None:
     parser.add_argument("--season", type=int, help="Override season number.")
     parser.add_argument("--episode", type=int, help="Override episode number.")
     parser.add_argument("--skip-pgs", action="store_true", help="Don't try PGS→VobSub conversion.")
+    # `colr` patching is intentionally explicit. There is NO safe default
+    # because writing BT.709/SDR values into an HDR10 or Dolby Vision file
+    # silently mislabels it as SDR and TV.app will tone-map it incorrectly.
+    # Pick exactly one source of values:
     parser.add_argument(
-        "--patch-colr",
+        "--colr-from-source",
         action="store_true",
-        help="After mux, ensure video colr is nclx (same-size patch only).",
+        help="Patch nclx colr in-place using primaries/transfer/matrix read from "
+             "the source via ffprobe. Safe for HDR10/DV (does not change codes).",
     )
     parser.add_argument(
-        "--patch-dec3-joc",
+        "--colr-primaries", type=int, default=None,
+        help="ISO/IEC 23001-8 colour primaries (e.g. 1=BT.709, 9=BT.2020). "
+             "Requires --colr-transfer and --colr-matrix.",
+    )
+    parser.add_argument("--colr-transfer", type=int, default=None,
+        help="Transfer characteristics (1=BT.709, 16=SMPTE2084/PQ, 18=HLG).")
+    parser.add_argument("--colr-matrix", type=int, default=None,
+        help="Matrix coefficients (1=BT.709, 9=BT.2020 NC).")
+    parser.add_argument("--colr-full-range", action="store_true",
+        help="Set the nclx full-range flag (default: limited range).")
+    parser.add_argument(
+        "--experimental-force-dec3-joc",
         action="store_true",
-        help="After mux, force EAC-3 dec3 JOC flag bit (Atmos hint for TV.app).",
+        help="DANGEROUS / EXPERIMENTAL. ORs the low bit of the last dec3 payload "
+             "byte for every EAC-3 track. Does NOT parse the substream/JOC layout, "
+             "and on plain E-AC-3 5.1 it lies to TV.app about Atmos capability. "
+             "Recent dtrace shows TV.app local playback spatializes without this "
+             "patch on the measured build — only use if you have an independent "
+             "Atmos/JOC verification of the source.",
     )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
@@ -195,10 +255,22 @@ def main_convert(argv: list[str]) -> None:
             if r.converted:
                 pgs_out.replace(dst)
 
-    if args.patch_colr:
-        # Defaults: BT.709 / SDR (1,1,1) full-range off — caller should override per source.
-        summary["colr_patched"] = atoms.patch_colr_nclx(dst, 1, 1, 1, False)
-    if args.patch_dec3_joc:
+    colr_values = _resolve_colr_args(args, src)
+    if colr_values is not None:
+        p, t, m, fr = colr_values
+        summary["colr_patched"] = {
+            "patched": atoms.patch_colr_nclx(dst, p, t, m, fr),
+            "primaries": p, "transfer": t, "matrix": m, "full_range": fr,
+        }
+    if args.experimental_force_dec3_joc:
+        print(
+            "WARNING: --experimental-force-dec3-joc OR's the dec3 JOC bit without "
+            "parsing the substream layout. If the source is not actually Atmos/JOC "
+            "this writes a lie into the bitstream. Recent dtrace shows TV.app "
+            "spatializes without this patch — prefer skipping unless you have an "
+            "independent Atmos verification of the source.",
+            file=sys.stderr,
+        )
         summary["dec3_joc_patched"] = atoms.patch_dec3_joc(dst)
 
     if not args.no_metadata:

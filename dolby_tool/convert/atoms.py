@@ -1,12 +1,21 @@
-"""Focused MP4 box patcher for Apple TV compatibility.
+"""Focused MP4 box patcher — last-resort knobs for specific bitstream issues.
 
-Scope is deliberately narrow — only the boxes ffmpeg's `-c copy` gets wrong
-or omits for TV.app's gate model (reports/01_gate_model.md):
+NOT a default pipeline step. The 2026-05-23 N2-probe baseline (see the caveat
+at the top of reports/01_gate_model.md) shows TV.app local playback
+spatializing without these patches; the older "patch boxes to flip the gate"
+model is stale on the current build.
 
-  * `colr` → ensure `nclx` variant (vs ffmpeg's occasional legacy `nclc`)
-    with full-range / matrix coefficients preserved.
-  * `dec3` (EAC-3 sample entry config) → set `joc` bit when the bitstream
-    carries Atmos, so TV.app's spatial-audio gate flips.
+Scope is deliberately narrow — two atoms only:
+
+  * `colr` → overwrite the `nclx` payload with explicit primaries/transfer/
+    matrix codes. Same-size in-place only; does NOT convert legacy `nclc`
+    to `nclx` (that requires growing the box by one byte and rewriting
+    chunk offsets — out of scope). Caller must supply the right codes;
+    writing BT.709/SDR values into an HDR/DV file is destructive.
+  * `dec3` (EAC-3 sample entry config) → OR the low bit of the last payload
+    byte. EXPERIMENTAL: does not parse the substream / dependent-substream
+    layout, so on plain E-AC-3 5.1 this writes a JOC claim that is not true.
+    Gated behind `--experimental-force-dec3-joc` in the CLI.
 
 iTunes-style userdata tags (`©nam`, `desc`, `covr`, `iTunEXTC`, `stik`, TV
 atoms etc.) are written by `tagger.py` using AtomicParsley, which handles

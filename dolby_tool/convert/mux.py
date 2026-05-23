@@ -4,8 +4,13 @@ Design: do as little as possible during mux. We `-c copy` video and audio so
 HEVC/H.264 + AC-3/EAC-3/AC-4 passthrough is bit-exact; text subtitles are
 converted to `mov_text` (the only sub codec MP4 natively supports), and PGS
 bitmap subtitles are stripped here and re-injected by `subs_pgs.py` in a
-second pass. After mux, `atoms.py` patches the boxes ffmpeg gets wrong/leaves
-off so TV.app lights up DV / Atmos as predicted by reports/01_gate_model.md.
+second pass.
+
+Optional `atoms.py` post-mux patches are available but NOT required for TV.app
+spatial playback on current builds — the 2026-05-23 N2-probe baseline (see
+reports/01_gate_model.md caveat) shows TV.app local playback spatializing
+without dec3/colr patching. Treat the patchers as last-resort knobs for
+specific bitstream-mismatch cases, not as a default pipeline step.
 """
 from __future__ import annotations
 
@@ -89,12 +94,64 @@ def probe(source: Path) -> ProbeResult:
     )
 
 
+# Audio codec preference for the "best" track: object/immersive first, then
+# lossless, then lossy multichannel, then stereo lossy. Higher score wins.
+_CODEC_SCORE = {
+    "ac4": 100, "eac3": 90, "ac3": 80, "truehd": 95, "dts": 70, "flac": 85,
+    "alac": 85, "mlp": 95, "opus": 60, "aac": 50, "mp3": 30, "vorbis": 30,
+}
+
+# Track-title keywords that indicate a non-primary track we should NOT pick
+# as the default (commentary, audio description, etc.).
+_NON_PRIMARY_KEYWORDS = (
+    "commentary", "comment", "director", "cast",
+    "audio description", "descriptive", "described", " ad ", "(ad)",
+    "sdh", "vi ", "visually impaired",
+)
+
+
+def _is_non_primary(a: StreamInfo) -> bool:
+    title = (a.title or "").lower()
+    if any(kw in f" {title} " for kw in _NON_PRIMARY_KEYWORDS):
+        return True
+    disp = a.raw.get("disposition") or {}
+    if disp.get("comment") or disp.get("descriptions") or disp.get("visual_impaired"):
+        return True
+    return False
+
+
+def _channels(a: StreamInfo) -> int:
+    try:
+        return int(a.raw.get("channels") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _default_audio_index(audios: list[StreamInfo]) -> int:
-    """First English track wins; otherwise the first track."""
-    for i, a in enumerate(audios):
-        if (a.language or "").lower() in ("eng", "en"):
-            return i
-    return 0
+    """Pick the best primary audio track.
+
+    Ranking (high→low): not commentary/AD, English language, codec quality
+    (AC-4 > EAC-3/TrueHD > AC-3 > AAC), channel count, source `default`
+    disposition, original index as tiebreaker.
+    """
+    if not audios:
+        return 0
+
+    def score(idx_and_a: tuple[int, StreamInfo]) -> tuple:
+        i, a = idx_and_a
+        lang = (a.language or "").lower()
+        disp = a.raw.get("disposition") or {}
+        return (
+            0 if _is_non_primary(a) else 1,
+            1 if lang in ("eng", "en") else 0,
+            _CODEC_SCORE.get(a.codec.lower(), 0),
+            _channels(a),
+            1 if disp.get("default") else 0,
+            -i,  # earlier index breaks ties
+        )
+
+    best = max(enumerate(audios), key=score)
+    return best[0]
 
 
 def mux(
