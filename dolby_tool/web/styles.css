@@ -126,10 +126,10 @@ main {
   border-radius: 12px;
   padding: 24px;
   text-align: center;
-  transition: background-color 0.25s cubic-bezier(0.16, 1, 0.3, 1),
-              border-color 0.25s cubic-bezier(0.16, 1, 0.3, 1),
-              transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
-              box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: background-color 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.15s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .dropzone:hover {
@@ -139,21 +139,9 @@ main {
 
 .dropzone.drag {
   border-color: var(--accent);
-  background: rgba(79, 158, 255, 0.08);
-  box-shadow: 0 0 16px rgba(79, 158, 255, 0.25);
-  transform: scale(1.01);
-  animation: dropzonePulse 1.5s ease-in-out infinite alternate;
-}
-
-@keyframes dropzonePulse {
-  0% {
-    border-color: var(--accent);
-    box-shadow: 0 0 12px rgba(79, 158, 255, 0.15);
-  }
-  100% {
-    border-color: var(--accent-strong);
-    box-shadow: 0 0 24px rgba(79, 158, 255, 0.35);
-  }
+  background: rgba(79, 158, 255, 0.04);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15), 0 0 10px rgba(79, 158, 255, 0.12);
+  transform: scale(1.003);
 }
 
 .dropzone p { margin: 0 0 12px; color: var(--text-dim); }
@@ -265,12 +253,34 @@ input[type=text]:focus {
 }
 
 .card h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 16px 0 8px;
   font-size: 13px;
   font-weight: 600;
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.heading-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.heading-icon svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+  fill: currentColor;
+}
+
+.heading-icon svg[stroke] {
+  fill: none;
 }
 
 .card .filename {
