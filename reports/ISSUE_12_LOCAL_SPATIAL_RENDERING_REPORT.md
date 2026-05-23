@@ -239,6 +239,16 @@ File-level variants are not expected to change TV.app behavior unless they make 
     `Atmos_7_1_4` / `Stereo` layouts
   - intended workflow is `hls-package` -> `hls-serve --open quicktime` ->
     `tvlog-capture --profile local-player`
+  - added `dolby-tool hls-package-capture <input> <folder>` to run the
+    same workflow in the correct order: package, start the Range-capable
+    server, start local-player capture, then open QuickTime. This avoids
+    late captures that miss AudioQueue / Atmos decoder initialization.
+  - wrapper validation:
+    `captures/alt_paths/20260523_quicktime_hls_package_wrapper.json`
+    reproduced FigStreamPlayer, Atmos HLS group, runtime `ec+3 ch=16`,
+    lower-level spatialization, Atmos decoder, OAR, forced 7.1.4 Atmos,
+    SpatialMgr source `mlti`, and AUSpatialMixer layouts
+    `Atmos_7_1_4` / `Stereo`
 
 ## What remains to test
 
@@ -301,6 +311,9 @@ These match the focus areas in #10, #6, #4 and add parser hooks from the QuickTi
   The command patches the generated master playlist with Apple-player
   compatibility tags; without those tags, the first live QuickTime test
   failed before media segment playback.
+- Added: `dolby-tool hls-package-capture <local media file> <folder>` to
+  package, serve, open QuickTime, and capture with the correct startup
+  ordering in one command.
 - Added: `dolby-tool hls-prepare <local.movpkg> <folder>` to flatten simple
   persisted-HLS packages into the served folder layout.
 - Added: `dolby-tool hls-serve <folder> --open quicktime` for a
@@ -325,6 +338,8 @@ These match the focus areas in #10, #6, #4 and add parser hooks from the QuickTi
 - [x] Direct local-file-to-HLS packaging path live-tested in QuickTime;
   auto-patched output reaches FigStreamPlayer and lower-level Atmos /
   spatial mixer evidence.
+- [x] Direct local-file-to-HLS capture workflow wrapped in a single command
+  so future runs start log capture before QuickTime playback.
 - [x] Safari local-HLS launch attempted; current result is failed-page tabs and 0 playback events, so Safari remains unproven rather than a working path.
 - [x] Local-file MP4 faststart, M4V, and MOV remux variants tested; all stayed FigFilePlayer/ec+3/app-false.
 - [x] Local HLS packaging test completed for QuickTime; TV.app URL-scheme launch did not work.

@@ -1038,6 +1038,31 @@ forced 7.1.4 Atmos, and AUSpatialMixer layouts `Atmos_7_1_4`, `Stereo`.
 This reproduces the earlier QuickTime local-HLS result from an ordinary
 local file without requiring a `.movpkg`.
 
+Tooling note: `dolby-tool hls-package-capture <input> <folder>` now wraps
+this sequence in the correct order: package the local file, start the
+Range-capable local server, start `local-player` log capture, open
+QuickTime, then save/print the parsed summary. The ordering matters:
+a capture started after QuickTime had already initialized playback only
+showed FigStreamPlayer/video decode and missed the AudioQueue / Atmos
+decoder evidence.
+
+Wrapper confirmation:
+
+```bash
+uv run python -m dolby_tool hls-package-capture \
+  .tmp/remux_variants/blood_bone_clip_faststart.mp4 \
+  .tmp/hls_package_capture_wrapper --overwrite --seconds 45 \
+  --output captures/alt_paths/20260523_quicktime_hls_package_wrapper.json
+```
+
+This one-command run used an ephemeral localhost port and produced the
+same result: `source=hls`, `pipeline_engine=FigStreamPlayer`, AudioGroup
+`group_audio` classified as Atmos, source `ec-3`, runtime
+`ec+3 ch=16 48000 Hz spatialization=yes`, lower-level spatialization
+active, Atmos decoder active, OAR active, forced 7.1.4 Atmos,
+SpatialMgr source `mlti`, and AUSpatialMixer layouts `Atmos_7_1_4`,
+`Stereo`.
+
 ## Bottom line (2026-05-23)
 
 - **For local-file Atmos playback with `is rendering spatial audio = true`

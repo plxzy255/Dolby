@@ -302,6 +302,12 @@ Execution update:
   AudioGroup `group_audio` classified as Atmos, source `ec-3`, runtime
   `ec+3 ch=16`, Atmos decoder active, OAR active, forced 7.1.4 Atmos,
   and AUSpatialMixer layouts `Atmos_7_1_4`, `Stereo`.
+- `dolby-tool hls-package-capture <local media file> <folder>` now wraps
+  the working sequence so future tests do not accidentally start capture
+  after QuickTime playback initialization.
+- Wrapper validation
+  `captures/alt_paths/20260523_quicktime_hls_package_wrapper.json`
+  reproduced the full QuickTime local-HLS evidence in one command.
 - TV.app did not open that arbitrary HLS URL through `http`, `itls`,
   `itlss`, `itvls`, or `itvlss`; it produced no playback events and made no
   localhost fetches.

@@ -67,6 +67,14 @@ uv run python -m dolby_tool hls-package "/path/to/local-atmos.mp4" .tmp/local_hl
 uv run python -m dolby_tool hls-serve .tmp/local_hls --open quicktime
 ```
 
+For a clean QuickTime evidence capture, use the wrapper that starts capture
+before opening playback:
+
+```bash
+uv run python -m dolby_tool hls-package-capture "/path/to/local-atmos.mp4" \
+  .tmp/local_hls --overwrite --seconds 60 --output captures/alt_paths/local_hls.json
+```
+
 Or flatten a simple persisted-HLS `.movpkg` into the same served folder layout:
 
 ```bash
