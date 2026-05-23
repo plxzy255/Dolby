@@ -432,6 +432,7 @@ tr.best-row td:first-child::before {
   background: var(--bg-row);
   line-height: 1.4;
   word-break: break-all;
+  flex-shrink: 0;
 }
 
 .event .kind {

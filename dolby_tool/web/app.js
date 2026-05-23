@@ -340,8 +340,54 @@ async function runInspect(path) {
 function renderSpec(spec) {
   const v = spec.video;
   const dv = v.dolby_vision;
-  const card = el('div', { class: 'card' });
-  card.appendChild(el('h2', {}, spec.filename));
+  const card = el('div', { class: 'card capt-summary' });
+  
+  // header row: title + copy icon
+  const hdr = el('div', { class: 'capt-summary-hdr' });
+  hdr.appendChild(el('h2', {}, spec.filename));
+
+  const copyWrap = el('div', { class: 'copy-wrap' });
+  const copyStatus = el('span', { class: 'copy-status', 'aria-live': 'polite' });
+
+  copyWrap.appendChild(el('button', {
+    class: 'copy-icon-btn',
+    type: 'button',
+    title: 'Copy shareable summary',
+    'aria-label': 'Copy shareable summary',
+    onclick: async () => {
+      const parts = [
+        `File: ${spec.filename}`,
+        `Path: ${spec.path}`,
+        `Size: ${spec.container.size_pretty} | Duration: ${spec.container.duration_pretty}`,
+        `Video: ${v.codec} | ${v.resolution} | ${v.fps} fps | ${v.bit_rate_mbps ? v.bit_rate_mbps + ' Mbps' : 'n/a'}`,
+        `Dolby Vision: ${dv.present ? `Yes (Profile ${dv.profile || dv.profile_raw}, ${dv.compatibility_name})` : 'No'}`,
+        `HDR10+: ${v.hdr10_plus ? 'Yes' : 'No'} | HDR10: ${(v.hdr10.mdcv || v.hdr10.cll) ? 'Yes' : 'No'}`,
+        `FourCC: ${v.fourcc || 'n/a'}`
+      ];
+      if (spec.audio.length) {
+        parts.push(`Audio tracks (${spec.audio.length}):`);
+        spec.audio.forEach((a, i) => {
+          parts.push(`  [#${i}] ${a.codec || '—'} | ${a.channels}ch | ${a.bit_rate_kbps ? a.bit_rate_kbps + ' kbps' : '—'} | ${a.channel_layout || '—'}${a.atmos ? ' (Atmos)' : ''}`);
+        });
+      }
+      await _copyFromButton(copyWrap, parts.join('\n'));
+    },
+    html: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 3H14.6C16.84 3 17.96 3 18.816 3.436C19.569 3.819 20.181 4.431 20.564 5.184C21 6.04 21 7.16 21 9.4V16.5M6.2 21H14.3C15.42 21 15.98 21 16.408 20.782C16.784 20.59 17.09 20.284 17.282 19.908C17.5 19.48 17.5 18.92 17.5 17.8V9.7C17.5 8.58 17.5 8.02 17.282 7.592C17.09 7.216 16.784 6.91 16.408 6.718C15.98 6.5 15.42 6.5 14.3 6.5H6.2C5.08 6.5 4.52 6.5 4.092 6.718C3.716 6.91 3.41 7.216 3.218 7.592C3 8.02 3 8.58 3 9.7V17.8C3 18.92 3 19.48 3.218 19.908C3.41 20.284 3.716 20.59 4.092 20.782C4.52 21 5.08 21 6.2 21Z"/></svg>',
+  }));
+
+  copyWrap.appendChild(el('div', { class: 'copy-menu' },
+    el('button', {
+      class: 'copy-menu-item',
+      type: 'button',
+      onclick: async () => {
+        await _copyFromButton(copyWrap, JSON.stringify(spec, null, 2));
+      },
+    }, 'Copy full JSON'),
+  ));
+
+  copyWrap.appendChild(copyStatus);
+  hdr.appendChild(copyWrap);
+  card.appendChild(hdr);
   card.appendChild(el('div', { class: 'filename' }, spec.path));
 
   if (v.fourcc_warning) {
