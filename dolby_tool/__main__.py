@@ -9,7 +9,13 @@ import time
 
 import uvicorn
 
-from .local_hls import create_hls_server, open_hls_url, playlist_url
+from .local_hls import (
+    create_hls_server,
+    open_hls_url,
+    playlist_url,
+    prepare_hls_from_movpkg,
+    prepare_hls_summary_markdown,
+)
 from .movpkg import analyze_movpkg, movpkg_summary_markdown
 from .tvlog import (
     LOCAL_PLAYER_PREDICATE,
@@ -32,6 +38,9 @@ def main() -> None:
         return
     if len(sys.argv) > 1 and sys.argv[1] == "hls-serve":
         _main_hls_serve(sys.argv[2:])
+        return
+    if len(sys.argv) > 1 and sys.argv[1] == "hls-prepare":
+        _main_hls_prepare(sys.argv[2:])
         return
 
     parser = argparse.ArgumentParser(prog="dolby-tool")
@@ -154,6 +163,21 @@ def _main_hls_serve(argv: list[str]) -> None:
         pass
     finally:
         server.server_close()
+
+
+def _main_hls_prepare(argv: list[str]) -> None:
+    parser = argparse.ArgumentParser(prog="dolby-tool hls-prepare")
+    parser.add_argument("movpkg", help="Persisted-HLS .movpkg directory to flatten.")
+    parser.add_argument("output_dir", help="Output HLS directory for hls-serve.")
+    parser.add_argument("--overwrite", action="store_true", help="Allow writing into a non-empty output dir.")
+    parser.add_argument("--json", action="store_true", help="Print JSON instead of Markdown.")
+    args = parser.parse_args(argv)
+
+    summary = prepare_hls_from_movpkg(args.movpkg, args.output_dir, overwrite=args.overwrite)
+    if args.json:
+        print(json.dumps(summary, indent=2, sort_keys=True))
+    else:
+        print(prepare_hls_summary_markdown(summary))
 
 
 def _predicate_for_profile(profile: str) -> str:

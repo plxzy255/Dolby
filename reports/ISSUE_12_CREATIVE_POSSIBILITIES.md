@@ -277,6 +277,7 @@ Execution update:
   `/Users/psp/Desktop/Dolby Spatial Test.movpkg` was served from
   `.tmp/alt_hls`. A Range-capable localhost server was needed for
   QuickTime/Safari byterange requests; this is now repeatable via
+  `dolby-tool hls-prepare <local.movpkg> .tmp/alt_hls --overwrite` followed by
   `dolby-tool hls-serve .tmp/alt_hls --open quicktime`.
 - TV.app did not open that arbitrary HLS URL through `http`, `itls`,
   `itlss`, `itvls`, or `itvlss`; it produced no playback events and made no
