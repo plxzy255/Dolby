@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from .compare import compare_files
 from .inspect import InspectError, inspect_file
@@ -53,19 +54,12 @@ class PathsPayload(BaseModel):
 
 @app.post("/api/inspect")
 async def api_inspect(body: PathPayload) -> dict[str, Any]:
-    path = _normalize_path(body.path)
-    try:
-        return inspect_file(path)
-    except InspectError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    return await run_in_threadpool(_inspect_response, body)
 
 
 @app.post("/api/compare")
 async def api_compare(body: PathsPayload) -> dict[str, Any]:
-    paths = [_normalize_path(p) for p in body.paths]
-    if not paths:
-        raise HTTPException(status_code=400, detail="no paths provided")
-    return compare_files(paths, body.weights)
+    return await run_in_threadpool(_compare_response, body)
 
 
 @app.get("/api/capabilities")
@@ -121,6 +115,25 @@ async def api_pick(multi: bool = False) -> JSONResponse:
 
 @app.get("/api/find")
 async def api_find(name: str, hint: str = "") -> JSONResponse:
+    return await run_in_threadpool(_find_response, name, hint)
+
+
+def _inspect_response(body: PathPayload) -> dict[str, Any]:
+    path = _normalize_path(body.path)
+    try:
+        return inspect_file(path)
+    except InspectError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+def _compare_response(body: PathsPayload) -> dict[str, Any]:
+    paths = [_normalize_path(p) for p in body.paths]
+    if not paths:
+        raise HTTPException(status_code=400, detail="no paths provided")
+    return compare_files(paths, body.weights)
+
+
+def _find_response(name: str, hint: str = "") -> JSONResponse:
     """Resolve a dropped filename to an absolute path.
 
     Strategy:
@@ -208,6 +221,7 @@ async def ws_tvlog(ws: WebSocket) -> None:
     await ws.accept()
     loop = asyncio.get_event_loop()
     queue: asyncio.Queue | None = None
+    pump_task: asyncio.Task | None = None
     try:
         while True:
             msg = await ws.receive_json()
@@ -216,13 +230,17 @@ async def ws_tvlog(ws: WebSocket) -> None:
             if cmd == "start":
                 async with _capture_lock:
                     if _capture is not None:
+                        if queue is not None:
+                            _capture.unsubscribe(queue)
                         _capture.stop()
+                    if pump_task is not None:
+                        pump_task.cancel()
                     _capture = LogCapture()
                     _capture.start(loop)
                     queue = _capture.subscribe()
                 await ws.send_json({"type": "started", "predicate": PREDICATE})
                 # Pump events to client while capture is live
-                asyncio.create_task(_pump(ws, queue))
+                pump_task = asyncio.create_task(_pump(ws, queue))
 
             elif cmd == "stop":
                 async with _capture_lock:
@@ -234,6 +252,9 @@ async def ws_tvlog(ws: WebSocket) -> None:
                         _capture.unsubscribe(queue)
                     _capture = None
                     queue = None
+                    if pump_task is not None:
+                        pump_task.cancel()
+                        pump_task = None
                 await ws.send_json({"type": "summary", "summary": summary})
 
             elif cmd == "ping":
@@ -244,8 +265,12 @@ async def ws_tvlog(ws: WebSocket) -> None:
     except WebSocketDisconnect:
         pass
     finally:
+        if pump_task is not None:
+            pump_task.cancel()
         async with _capture_lock:
             if _capture is not None:
+                if queue is not None:
+                    _capture.unsubscribe(queue)
                 _capture.stop()
                 _capture = None
 
