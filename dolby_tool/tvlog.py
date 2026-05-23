@@ -45,6 +45,7 @@ RE_FIG_ALT = re.compile(
 RE_FIG_ALT_PEAK = re.compile(r"\[Peak/Avg\s+(?P<peak>\d+)/(?P<avg>\d+)\]")
 RE_FIG_ALT_RES = re.compile(r"\[(?P<width>\d+)x(?P<height>\d+)\]")
 RE_FIG_ALT_CODECS = re.compile(r"\[(?P<codecs>(?:avc1|hvc1|dvh1|dvhe|ac-3|ec-3|mp4a)[^\]]*)\]")
+RE_FIG_ALT_AUDIO_GROUP = re.compile(r"\[AudioGroup\s+(?P<audio_group>[^\]]+)\]")
 RE_FIG_ALT_RANGE = re.compile(r"\[VideoRange\s+(?P<range>\w+)\]")
 RE_FIG_ALT_HDCP = re.compile(r"\[HDCP\s+(?P<hdcp>[^\]]+)\]")
 RE_FIG_ALT_FPS = re.compile(r"\[FrameRate\s+(?P<fps>[\d.]+)\]")
@@ -200,6 +201,7 @@ def _parse_line(line: str) -> dict[str, Any] | None:
         peak = RE_FIG_ALT_PEAK.search(line)
         resolution = RE_FIG_ALT_RES.search(line)
         codecs = RE_FIG_ALT_CODECS.search(line)
+        audio_group = RE_FIG_ALT_AUDIO_GROUP.search(line)
         video_range = RE_FIG_ALT_RANGE.search(line)
         hdcp = RE_FIG_ALT_HDCP.search(line)
         fps = RE_FIG_ALT_FPS.search(line)
@@ -212,6 +214,7 @@ def _parse_line(line: str) -> dict[str, Any] | None:
             "width": _int(resolution.group("width") if resolution else None),
             "height": _int(resolution.group("height") if resolution else None),
             "codecs": codecs.group("codecs") if codecs else None,
+            "audio_group": audio_group.group("audio_group") if audio_group else None,
             "video_range": video_range.group("range") if video_range else None,
             "hdcp": hdcp.group("hdcp") if hdcp else None,
             "fps": _float(fps.group("fps") if fps else None),
@@ -657,6 +660,11 @@ class LogCapture:
             codecs = (last_variant.get("codecs") or "").split(",")
             playback["video_fourcc"] = codecs[0].split(".")[0] if codecs and codecs[0] else None
             playback["audio_codec"] = codecs[1] if len(codecs) > 1 else None
+            playback["selected_hls_audio_group"] = last_variant.get("audio_group")
+            playback["selected_hls_audio_group_kind"] = _hls_audio_group_kind(
+                last_variant.get("audio_group"), playback.get("audio_codec")
+            )
+            playback["hls_delivery"] = _hls_delivery_label(last_variant.get("audio_group"))
             playback["peak_mbps"] = (
                 round(last_variant["peak_bps"] / 1_000_000, 2)
                 if last_variant.get("peak_bps")
@@ -680,6 +688,15 @@ class LogCapture:
             playback["best_audio"] = _audio_summary(best_audio)
         if observed_audio:
             playback["observed_audio"] = observed_audio
+        if last_variant:
+            verdict = _movpkg_hls_verdict(
+                selected_group=last_variant.get("audio_group"),
+                audio_codec=playback.get("audio_codec"),
+                observed_audio=observed_audio,
+                renderer_events=renderer_events,
+            )
+            if verdict:
+                playback["downloaded_hls_verdict"] = verdict
         if last_file:
             playback["file_player"] = last_file
         # pipeline_engine from audio events (most reliable source when it appears in the same log block)
@@ -737,6 +754,61 @@ class LogCapture:
             "events": self.events,
             "predicate": PREDICATE,
         }
+
+
+def _hls_audio_group_kind(audio_group: str | None, audio_codec: str | None) -> str | None:
+    group = (audio_group or "").lower()
+    codec = (audio_codec or "").lower()
+    if "audio-atmos" in group or codec in {"ec-3", "ec3"}:
+        return "atmos"
+    if "audio-stereo" in group or codec.startswith("mp4a"):
+        return "stereo"
+    if "descriptive" in group or "description" in group or group.endswith("_ad"):
+        return "audio_description"
+    return None
+
+
+def _hls_delivery_label(audio_group: str | None) -> str | None:
+    group = (audio_group or "").lower()
+    if "download-ap-aoc" in group:
+        return "downloaded_movpkg"
+    if "vod-ap-aoc" in group:
+        return "online_hls"
+    return None
+
+
+def _movpkg_hls_verdict(
+    *,
+    selected_group: str | None,
+    audio_codec: str | None,
+    observed_audio: list[dict[str, Any]],
+    renderer_events: list[dict[str, Any]],
+) -> str | None:
+    group_kind = _hls_audio_group_kind(selected_group, audio_codec)
+    delivery = _hls_delivery_label(selected_group)
+    if delivery != "downloaded_movpkg":
+        return None
+
+    atmos_seen = any(
+        (audio.get("format") or "").lower() in {"ec+3", "ec-3", "ec3", "qc+3"}
+        and (audio.get("channels") or 0) >= 16
+        for audio in observed_audio
+    )
+    atmos_seen = atmos_seen or any(
+        e.get("hint") == "mixer_spatial_status"
+        and (e.get("format") or "").lower() in {"ec+3", "ec-3", "ec3", "qc+3"}
+        and (e.get("channels") or 0) >= 16
+        and e.get("content_spatializable") is True
+        for e in renderer_events
+    )
+
+    if group_kind == "stereo" and atmos_seen:
+        return "movpkg_atmos_variant_present_but_not_selected"
+    if group_kind == "stereo":
+        return "movpkg_figstreamplayer_selected_stereo"
+    if group_kind == "atmos":
+        return "movpkg_atmos_variant_selected"
+    return None
 
 
 def _renderer_summary(

@@ -30,10 +30,43 @@ def test_parse_line_figalternate_with_audio_group():
     assert out["avg_bps"] == 5064990
     assert out["width"] == 1918
     assert out["height"] == 802
+    assert out["audio_group"] == "audio-atmos_vod-ap-aoc.tv.apple.com"
     assert out["codecs"] == "dvh1.05.03,ec-3"
     assert out["video_range"] == "PQ"
     assert out["hdcp"] == "Type1"
     assert out["fps"] == 23.976
+
+
+def test_movpkg_selected_stereo_with_atmos_evidence_gets_verdict():
+    lines = [
+        (
+            "2026-05-23 03:22:42.326 TV <<<< FigStreamPlayer >>>> "
+            "to [<FigAlternate(82):[0x78c451180] [Peak/Avg 4834137/2890759] "
+            "[1920x1080] [AudioGroup audio-stereo-160_download-ap-aoc.tv.apple.com] "
+            "[SubtitleGroup subtitles_download-ap-aoc.tv.apple.com] "
+            "[hvc1.2.20000000.L123.B0,mp4a.40.2] [VideoRange SDR] "
+            "[HDCP Type0] [FrameRate 23.976]>]"
+        ),
+        (
+            "2026-05-23 03:22:51.378 TV MEMixerChannel.cpp:3300 "
+            "mFormatID='ec+3', mNumChannels=16, mBestAvailableContentType=3, "
+            "mContentspatializable=1, mSpatializationStatus=0, err=0"
+        ),
+        "AUDIO_FORMAT qaac is decodable ch=2",
+    ]
+    events = [_parse_line(line) for line in lines]
+    assert all(event is not None for event in events)
+
+    capture = LogCapture()
+    capture.events = [event for event in events if event is not None]
+    playback = capture.summarize()["playback"]
+
+    assert playback["source"] == "hls"
+    assert playback["hls_delivery"] == "downloaded_movpkg"
+    assert playback["selected_hls_audio_group"] == "audio-stereo-160_download-ap-aoc.tv.apple.com"
+    assert playback["selected_hls_audio_group_kind"] == "stereo"
+    assert playback["audio_codec"] == "mp4a.40.2"
+    assert playback["downloaded_hls_verdict"] == "movpkg_atmos_variant_present_but_not_selected"
 
 
 def test_parse_line_codec_type():
