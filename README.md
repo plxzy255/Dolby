@@ -46,6 +46,11 @@ Add multiple files to the comparison. The table highlights the winner per dimens
 ### TV Capture
 Click **Start Capture**, play something in TV.app, click **Stop**. The app runs `log stream` with predicates tuned for `mediaplaybackd`, `VTDecoderXPCService`, `coremediaxpc`, and `audiomxd`, parses out `FigAlternate` / `FigFilePlayer` / `CodecType` / `AudioFormat` events, and shows a structured summary of what was actually playing — DV profile, HW decoder FourCC, audio format, channel count, spatialization, peak/average bitrate.
 
+The default capture remains TV.app-focused. The parser also recognizes saved
+QuickTime/Safari raw-log evidence for local-player controls, including
+FigStreamPlayer, CoreAudio `ec+3` input, forced 7.1.4 Atmos decode, and
+`AUSpatialMixerV2` Atmos layouts.
+
 ### `.movpkg` Inventory
 For downloaded TV.app packages, inspect local HLS manifests and stream inventories:
 

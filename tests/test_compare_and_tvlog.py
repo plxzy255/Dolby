@@ -351,6 +351,75 @@ def test_renderer_hints_parse_local_spatial_lines():
     ]
 
 
+def test_quicktime_local_hls_evidence_parses_figstream_and_auspatial():
+    lines = [
+        (
+            "2026-05-23 05:22:30.724 Df QuickTime Player[9643:22260] "
+            "[com.apple.coremedia:player] <<<< FigStreamPlayer >>>> "
+            "FigPlayerStreamCreateWithOptions: [0xb61048000|P/FX]"
+        ),
+        (
+            "2026-05-23 05:22:30.733 Df QuickTime Player[9643:23338] "
+            "[com.apple.coremedia:player] <<<< FigStreamPlayer >>>> "
+            "fpfs_ReportVariantSwitchStart: to [<FigAlternate( 0):[0xb6095d400] "
+            "[Peak/Avg 16000000/15600000] [3840x1600] [AudioGroup atmos] "
+            "[dvh1.05.06,ec-3] [VideoRange PQ] [FrameRate 24.000]>]"
+        ),
+        (
+            "2026-05-23 05:22:30.745 Db QuickTime Player[9643:224f2] "
+            "[com.apple.coreaudio:AQClient] AQ_API_V2Impl.cpp:132 "
+            "AudioQueueNew: ->AudioQueueNewOutput 16 ch, 48000 Hz, ec+3 "
+            "(0x00000000) 0 bits/channel"
+        ),
+        (
+            "2026-05-23 05:22:30.746 I QuickTime Player[9643:224f2] "
+            "[com.apple.coreaudio:ac] ACDDPAtmosDecoder.cpp:384 "
+            "mIsAtmos = 1, mIsTVOS = 0, mIsOARMode = 1"
+        ),
+        (
+            "2026-05-23 05:22:30.783 Df QuickTime Player[9643:224f2] "
+            "[com.apple.coreaudio:AQ] AudioQueueObject.cpp:1085 "
+            "Forcing 7.1.4 decoder for Atmos"
+        ),
+        (
+            "2026-05-23 05:22:31.204 Df QuickTime Player[9643:23337] "
+            "[com.apple.coreaudio:AUSpatialMixerV2] "
+            "[0x825ab13b|SetAudioChannelLayout] [InputElement #0] "
+            "Setting audio channel layout Atmos_7_1_4"
+        ),
+        (
+            "2026-05-23 05:22:31.206 Df QuickTime Player[9643:23337] "
+            "[com.apple.coreaudio:AUSpatialMixerV2] "
+            "[0x825ab13b|InputElement #0|InitializeChannelProcessors] "
+            "Initializing 12 channel processors"
+        ),
+    ]
+    events = [_parse_line(line) for line in lines]
+    assert all(event is not None for event in events)
+
+    capture = LogCapture()
+    capture.events = [event for event in events if event is not None]
+    playback = capture.summarize()["playback"]
+    renderer = playback["renderer_evidence"]
+
+    assert playback["source"] == "hls"
+    assert playback["pipeline_engine"] == "FigStreamPlayer"
+    assert playback["selected_hls_audio_group"] == "atmos"
+    assert playback["selected_hls_audio_group_kind"] == "atmos"
+    assert playback["audio_codec"] == "ec-3"
+    assert playback["audio"]["format"] == "ec+3"
+    assert playback["audio"]["channels"] == 16
+    assert renderer["atmos_decoder_active"] is True
+    assert renderer["oar_mode_active"] is True
+    assert renderer["audioqueue_forced_atmos_714"] is True
+    assert renderer["auspatial_mixer_active"] is True
+    assert renderer["auspatial_atmos_layout_active"] is True
+    assert renderer["auspatial_channel_layouts"] == ["Atmos_7_1_4"]
+    assert renderer["auspatial_channel_processors"] == [12]
+    assert renderer["lower_level_spatialization_active"] is True
+    assert renderer["verdict"] == "lower_level_spatialization_active"
+
+
 def test_renderer_hints_parse_spatialmgr_binding_block():
     # SpatializationManager emits multi-field binding blocks; each field is
     # parsed independently by the line-based parser. Verify the three new
