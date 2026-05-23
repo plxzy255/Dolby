@@ -16,7 +16,12 @@ from .local_hls import (
     prepare_hls_from_movpkg,
     prepare_hls_summary_markdown,
 )
-from .movpkg import analyze_movpkg, movpkg_summary_markdown
+from .movpkg import (
+    analyze_movpkg,
+    movpkg_scan_markdown,
+    movpkg_summary_markdown,
+    scan_movpkgs,
+)
 from .tvlog import (
     LOCAL_PLAYER_PREDICATE,
     PREDICATE,
@@ -29,6 +34,9 @@ from .tvlog import (
 def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "movpkg":
         _main_movpkg(sys.argv[2:])
+        return
+    if len(sys.argv) > 1 and sys.argv[1] == "movpkg-scan":
+        _main_movpkg_scan(sys.argv[2:])
         return
     if len(sys.argv) > 1 and sys.argv[1] == "tvlog-parse":
         _main_tvlog_parse(sys.argv[2:])
@@ -84,6 +92,23 @@ def _main_movpkg(argv: list[str]) -> None:
         print(json.dumps(summary, indent=2, sort_keys=True))
     else:
         print(movpkg_summary_markdown(summary))
+
+
+def _main_movpkg_scan(argv: list[str]) -> None:
+    parser = argparse.ArgumentParser(prog="dolby-tool movpkg-scan")
+    parser.add_argument("root", help="TV.app media directory, season folder, or a single `.movpkg` package.")
+    parser.add_argument(
+        "--selected-group",
+        help="Optional HLS AudioGroup selected in a TV Capture, used to refine verdicts.",
+    )
+    parser.add_argument("--json", action="store_true", help="Print JSON instead of Markdown.")
+    args = parser.parse_args(argv)
+
+    scan = scan_movpkgs(args.root, selected_group=args.selected_group)
+    if args.json:
+        print(json.dumps(scan, indent=2, sort_keys=True))
+    else:
+        print(movpkg_scan_markdown(scan))
 
 
 def _main_tvlog_parse(argv: list[str]) -> None:

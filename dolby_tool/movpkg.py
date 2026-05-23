@@ -53,6 +53,49 @@ def analyze_movpkg(path: str | Path, selected_group: str | None = None) -> dict[
     }
 
 
+def find_top_level_movpkgs(root: str | Path) -> list[Path]:
+    """Return top-level `.movpkg` packages under a TV.app media directory."""
+    root_path = Path(root)
+    if root_path.suffix == ".movpkg":
+        return [root_path]
+
+    packages: list[Path] = []
+    for path in root_path.rglob("*.movpkg"):
+        if any(parent.suffix == ".movpkg" for parent in path.parents):
+            continue
+        packages.append(path)
+    return sorted(packages)
+
+
+def scan_movpkgs(root: str | Path, selected_group: str | None = None) -> dict[str, Any]:
+    """Analyze all top-level `.movpkg` packages under a root path."""
+    packages = find_top_level_movpkgs(root)
+    summaries = [analyze_movpkg(path, selected_group=selected_group) for path in packages]
+    return {
+        "root": str(Path(root)),
+        "package_count": len(packages),
+        "packages": [_compact_scan_row(summary) for summary in summaries],
+    }
+
+
+def movpkg_scan_markdown(scan: dict[str, Any]) -> str:
+    """Render a compact Markdown table for a downloaded `.movpkg` survey."""
+    lines = [
+        "# movpkg scan\n\n",
+        f"`{scan['root']}`\n",
+        f"- top-level packages: {scan['package_count']}\n\n",
+        "| package | verdict | complete main audio | Atmos status |\n",
+        "|---|---|---|---|\n",
+    ]
+    for row in scan.get("packages", []):
+        lines.append(
+            f"| `{row['movpkg']}` | `{row.get('inventory_verdict') or ''}` | "
+            f"{_markdown_cell(row.get('complete_main_audio') or ['none'])} | "
+            f"{_markdown_cell(row.get('atmos_status') or ['none'])} |\n"
+        )
+    return "".join(lines)
+
+
 def movpkg_summary_markdown(summary: dict[str, Any]) -> str:
     """Render a compact Markdown summary suitable for reports."""
     lines = [
@@ -86,6 +129,63 @@ def movpkg_summary_markdown(summary: dict[str, Any]) -> str:
             f"{row.get('segments', '')}; {row.get('variant_count', 0)} variants | {row.get('looks_like', '')} |\n"
         )
     return "".join(lines)
+
+
+def _compact_scan_row(summary: dict[str, Any]) -> dict[str, Any]:
+    audio_rows = summary.get("audio_table", [])
+    complete_main_audio = _unique_descriptions(
+        row
+        for row in audio_rows
+        if row.get("has_complete_main_stream") and row.get("group", "").startswith("audio-")
+    )
+    atmos_rows = [row for row in audio_rows if "Atmos" in row.get("looks_like", "")]
+    complete_main_atmos = [row for row in atmos_rows if row.get("has_complete_main_stream")]
+    main_atmos_refs = [row for row in atmos_rows if "main" in row.get("scope", "")]
+
+    if complete_main_atmos:
+        atmos_status = _unique_descriptions(complete_main_atmos)
+    elif main_atmos_refs:
+        atmos_status = ["No complete main Atmos; advertised/inferred Atmos is missing or incomplete for main content"]
+    elif atmos_rows:
+        atmos_status = ["No complete main Atmos; Atmos appears only outside main content"]
+    else:
+        atmos_status = ["No Atmos group found"]
+
+    return {
+        "movpkg": summary.get("movpkg"),
+        "inventory_verdict": summary.get("inventory_verdict"),
+        "complete_main_audio": complete_main_audio,
+        "atmos_status": atmos_status,
+    }
+
+
+def _unique_descriptions(rows: Any) -> list[str]:
+    descriptions: list[str] = []
+    seen: set[tuple[Any, ...]] = set()
+    for row in rows:
+        key = (
+            row.get("stream_id"),
+            row.get("group"),
+            row.get("channels"),
+            row.get("media_bytes_stored_sum"),
+            row.get("segments"),
+            row.get("looks_like"),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        channels = row.get("channels", "")
+        description = (
+            f"{row.get('group', '')} "
+            f"(channels {channels}, {row.get('media_bytes_stored_sum', 0)} bytes, "
+            f"{row.get('segments', '')}, {row.get('looks_like', '')})"
+        )
+        descriptions.append(description)
+    return descriptions or ["none"]
+
+
+def _markdown_cell(items: list[str]) -> str:
+    return "<br>".join(item.replace("|", "\\|") for item in items)
 
 
 def _walk_files(movpkg: Path) -> tuple[list[tuple[Path, int]], list[str]]:

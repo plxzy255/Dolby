@@ -310,6 +310,11 @@ Execution update:
 - `dolby-tool movpkg` now automates that inventory check and emits
   `movpkg_atmos_variant_missing_or_incomplete` when Atmos is advertised
   but not present as a complete top-level main-content stream.
+- `dolby-tool movpkg-scan "/Users/psp/Movies/TV/Media.localized"` now
+  batch-scans top-level downloaded packages while skipping interstitial
+  child packages. The current local library scan finds two top-level
+  packages, `Grass Lands` and `The Hope That Kills You`; both have
+  complete main stereo and no complete top-level main Atmos.
 
 Keep the local `.movpkg` recipe as a lower-priority diagnostic only. It is
 still useful if the goal is to test how TV.app handles a locally produced
