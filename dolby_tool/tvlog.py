@@ -154,6 +154,18 @@ RE_HEAD_TRACKING_PREF = re.compile(
     re.IGNORECASE,
 )
 RE_ROUTE = re.compile(r"Route = (?P<route>.+)", re.IGNORECASE)
+# SpatialMgr per-binding capability lines (one field per log line within the
+# binding block). Useful as a per-app verdict on whether the route is
+# spatial-capable at all and which source identifier got registered.
+RE_MAX_SPAT_CHANNELS = re.compile(
+    r"maxSpatializableChannels\s*=\s*(?P<channels>\d+)", re.IGNORECASE
+)
+RE_SPATIAL_AUDIO_SOURCES = re.compile(
+    r"spatialAudioSources\s*=\s*\[\s*(?P<sources>[^\]]*?)\s*\]", re.IGNORECASE
+)
+RE_SPATIAL_BINDING_APP = re.compile(
+    r"^\s*App\s*=\s*(?P<app>[^\s{}][^\n]*?)\s*$", re.IGNORECASE | re.MULTILINE
+)
 RE_ATMOS_DECODER_STATE = re.compile(
     r"ACDDPAtmosDecoder\.cpp:\d+.*?"
     r"mIsAtmos = (?P<is_atmos>[01]),\s*"
@@ -324,6 +336,33 @@ def _parse_renderer_line(line: str) -> dict[str, Any] | None:
             "hint": "route",
             "raw": line.rstrip(),
             "route": m.group("route").strip(),
+        }
+    if m := RE_MAX_SPAT_CHANNELS.search(line):
+        return {
+            "kind": "renderer_hint",
+            "hint": "max_spatializable_channels",
+            "raw": line.rstrip(),
+            "max_spatializable_channels": _int(m.group("channels")),
+        }
+    if m := RE_SPATIAL_AUDIO_SOURCES.search(line):
+        raw = m.group("sources").strip()
+        # Sources look like "'mlti'" or "'?src'" or "'mlti', 'atms'". Strip
+        # quotes and split on commas. '?src' is the sentinel for an
+        # unrecognized source (e.g. wired headset route).
+        sources = [s.strip().strip("'\"") for s in raw.split(",") if s.strip()]
+        return {
+            "kind": "renderer_hint",
+            "hint": "spatial_audio_sources",
+            "raw": line.rstrip(),
+            "spatial_audio_sources": sources,
+            "has_unknown_source": "?src" in sources,
+        }
+    if m := RE_SPATIAL_BINDING_APP.search(line):
+        return {
+            "kind": "renderer_hint",
+            "hint": "spatial_binding_app",
+            "raw": line.rstrip(),
+            "spatial_binding_app": m.group("app").strip(),
         }
     if m := RE_ATMOS_DECODER_STATE.search(line):
         d = m.groupdict()
@@ -808,6 +847,39 @@ def _renderer_summary(
         masks = _unique_keep_order([e.get("mask") for e in mask_events if e.get("mask")])
         summary["allowed_spatialization_formats_masks"] = masks
 
+    # SpatialMgr per-binding route capability. These three fields come from
+    # the "Spatial info for binding" block emitted by SpatializationManager.
+    # Together they answer: is the current route spatial-capable, and which
+    # source identifier did AudioToolbox register for the app/binding?
+    # On a non-spatial-capable route (e.g. wired headset) we see
+    # max_spatializable_channels=0 and '?src' as the source — explains a
+    # spatial=false verdict even when the app sets the allow mask correctly.
+    max_ch_events = [e for e in events if e["hint"] == "max_spatializable_channels"]
+    if max_ch_events:
+        vals = [
+            e.get("max_spatializable_channels")
+            for e in max_ch_events
+            if e.get("max_spatializable_channels") is not None
+        ]
+        if vals:
+            summary["max_spatializable_channels"] = vals[-1]
+            summary["route_spatial_capable"] = vals[-1] > 0
+    sources_events = [e for e in events if e["hint"] == "spatial_audio_sources"]
+    if sources_events:
+        all_sources: list[str] = []
+        for e in sources_events:
+            for s in e.get("spatial_audio_sources") or []:
+                if s and s not in all_sources:
+                    all_sources.append(s)
+        summary["spatial_audio_sources"] = all_sources
+        summary["spatial_source_unknown"] = "?src" in all_sources
+    app_events = [e for e in events if e["hint"] == "spatial_binding_app"]
+    if app_events:
+        apps = _unique_keep_order(
+            [e.get("spatial_binding_app") for e in app_events if e.get("spatial_binding_app")]
+        )
+        summary["spatial_binding_apps"] = apps
+
     # Immersive rendering requested ([item requires immersive rendering yes|no])
     immersive_events = [e for e in events if e["hint"] == "immersive_rendering_requested"]
     if immersive_events:
@@ -842,9 +914,11 @@ def _renderer_summary(
         summary["verdict_note"] = (
             "Atmos decode and spatial mixer are active (lower-level CoreAudio machinery "
             "is running), but TV.app's app-level spatial-rendering flag is false. "
-            "Current evidence suggests this is a playback-engine/asbd distinction: "
-            "local files use FigFilePlayer / ec+3, which does not reach the app-level flag. "
-            "This is not a codec-quality downgrade — the Atmos/OAR pipeline is still engaged."
+            "This is TV.app-specific behavior: it narrows allowedAudioSpatializationFormats "
+            "to 0x5 (stripping Multichannel) for local items, via "
+            "mpc_updateAVAudioSpatializationFormatsForPlayerAudioFormat:. Custom AVPlayer "
+            "apps (e.g. SpatialProbe, QuickTime) render spatial=true on the same content/route. "
+            "Not a codec downgrade — the Atmos pipeline is still engaged."
         )
     elif summary["lower_level_spatialization_active"]:
         summary["verdict"] = "lower_level_spatialization_active"

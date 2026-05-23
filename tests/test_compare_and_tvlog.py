@@ -318,6 +318,51 @@ def test_renderer_hints_parse_local_spatial_lines():
     ]
 
 
+def test_renderer_hints_parse_spatialmgr_binding_block():
+    # SpatializationManager emits multi-field binding blocks; each field is
+    # parsed independently by the line-based parser. Verify the three new
+    # signals (App, maxSpatializableChannels, spatialAudioSources) make it
+    # into the renderer summary.
+    lines = [
+        "    App = SpatialProbe",
+        "    Route = built-in speakers",
+        "        maxSpatializableChannels = 16",
+        "        spatialAudioSources = [ 'mlti' ]",
+    ]
+    events = [_parse_line(line) for line in lines]
+    assert all(e is not None for e in events)
+
+    capture = LogCapture()
+    capture.events = [e for e in events if e is not None]
+    renderer = capture.summarize()["playback"]["renderer_evidence"]
+
+    assert renderer["max_spatializable_channels"] == 16
+    assert renderer["route_spatial_capable"] is True
+    assert renderer["spatial_audio_sources"] == ["mlti"]
+    assert renderer["spatial_source_unknown"] is False
+    assert renderer["spatial_binding_apps"] == ["SpatialProbe"]
+
+
+def test_renderer_hints_parse_spatialmgr_non_capable_route():
+    lines = [
+        "    App = SpatialProbe",
+        "    Route = not capable of spatialization",
+        "        maxSpatializableChannels = 0",
+        "        spatialAudioSources = [ '?src' ]",
+    ]
+    events = [_parse_line(line) for line in lines]
+    assert all(e is not None for e in events)
+
+    capture = LogCapture()
+    capture.events = [e for e in events if e is not None]
+    renderer = capture.summarize()["playback"]["renderer_evidence"]
+
+    assert renderer["max_spatializable_channels"] == 0
+    assert renderer["route_spatial_capable"] is False
+    assert renderer["spatial_audio_sources"] == ["?src"]
+    assert renderer["spatial_source_unknown"] is True
+
+
 def test_renderer_hints_parse_hls_spatial_lines():
     lines = [
         (
