@@ -183,6 +183,12 @@ what we already know.
      `SpatializationManager`, `ACDDPAtmosDecoder`, and `MEMixerChannel`
      events should still appear. Treat Safari's audible result as the
      real signal, not the missing TV-specific log line.
+   - Tested follow-up: Safari failed to load both the direct playlist URL
+     and a minimal same-origin `<video src="master.m3u8">` page on this
+     machine, creating `safari-resource:/ErrorPage.html` tabs and 0
+     local-player capture events. Treat Safari as unproven/blocked by
+     launch or page-loading behavior unless that local load failure is
+     solved.
 
 10. **Open in QuickTime via File → Open Location**
    - Tested with a locally served HLS package built from the user's Atmos
@@ -282,6 +288,11 @@ Execution update:
 - TV.app did not open that arbitrary HLS URL through `http`, `itls`,
   `itlss`, `itvls`, or `itvlss`; it produced no playback events and made no
   localhost fetches.
+- Safari did not open the same local HLS as either a direct `master.m3u8`
+  navigation or a minimal same-origin HTML `<video>` page. It created
+  failed-page tabs and `tvlog-capture --profile local-player` produced 0
+  playback events, so this is currently a Safari launch/load failure rather
+  than an Atmos-selection result.
 - QuickTime Player did open the same local HLS URL. Raw log
   `captures/alt_paths/20260523_052228_quicktime_range_hls_raw.log` shows
   `FigStreamPlayer`, `[AudioGroup atmos]`, `[dvh1.05.06,ec-3]`, `ec+3`
