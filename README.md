@@ -51,6 +51,13 @@ QuickTime/Safari raw-log evidence for local-player controls, including
 FigStreamPlayer, CoreAudio `ec+3` input, forced 7.1.4 Atmos decode, and
 `AUSpatialMixerV2` Atmos layouts.
 
+For saved raw logs or non-TV.app local-player controls:
+
+```bash
+uv run python -m dolby_tool tvlog-parse captures/alt_paths/example.log
+uv run python -m dolby_tool tvlog-capture --profile local-player --seconds 60
+```
+
 ### `.movpkg` Inventory
 For downloaded TV.app packages, inspect local HLS manifests and stream inventories:
 

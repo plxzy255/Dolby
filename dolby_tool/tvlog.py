@@ -21,6 +21,7 @@ import signal
 import subprocess
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 PREDICATE = (
@@ -844,6 +845,83 @@ class LogCapture:
         }
 
 
+def summarize_log_lines(lines: list[str], predicate: str | None = None) -> dict[str, Any]:
+    """Parse saved `log stream --style compact` lines into a capture summary."""
+    capture = LogCapture(predicate=predicate)
+    for line in lines:
+        event = _parse_line(line)
+        if event:
+            capture.events.append(event)
+    return capture.summarize()
+
+
+def summarize_log_file(path: str | Path, predicate: str | None = None) -> dict[str, Any]:
+    """Parse a saved raw log file into the same shape as a live capture."""
+    text = Path(path).read_text(errors="replace")
+    return summarize_log_lines(text.splitlines(), predicate=predicate)
+
+
+def tvlog_summary_markdown(summary: dict[str, Any]) -> str:
+    """Render a compact Markdown summary for CLI use."""
+    playback = summary.get("playback") or {}
+    renderer = playback.get("renderer_evidence") or {}
+    lines = ["# TV/log playback summary\n"]
+    lines.append(f"- events parsed: `{summary.get('event_count', 0)}`")
+    lines.append(f"- source: `{playback.get('source')}`")
+    if playback.get("pipeline_engine"):
+        lines.append(f"- pipeline engine: `{playback.get('pipeline_engine')}`")
+    if playback.get("selected_hls_audio_group"):
+        lines.append(f"- selected HLS AudioGroup: `{playback.get('selected_hls_audio_group')}`")
+    if playback.get("selected_hls_audio_group_kind"):
+        lines.append(f"- HLS AudioGroup kind: `{playback.get('selected_hls_audio_group_kind')}`")
+    if playback.get("audio_codec"):
+        lines.append(f"- HLS audio codec: `{playback.get('audio_codec')}`")
+    if playback.get("hls_delivery"):
+        lines.append(f"- HLS delivery: `{playback.get('hls_delivery')}`")
+    if playback.get("downloaded_hls_verdict"):
+        lines.append(f"- downloaded HLS verdict: `{playback.get('downloaded_hls_verdict')}`")
+    if playback.get("audio"):
+        lines.append(f"- current audio: `{_format_audio_summary(playback['audio'])}`")
+    if playback.get("best_audio"):
+        lines.append(f"- best observed audio: `{_format_audio_summary(playback['best_audio'])}`")
+    if renderer:
+        lines.append(f"- renderer verdict: `{renderer.get('verdict')}`")
+        if renderer.get("app_spatial_rendering_ever_true") is not None:
+            lines.append(
+                "- TV.app app spatial ever true: "
+                f"`{renderer.get('app_spatial_rendering_ever_true')}`"
+            )
+        if renderer.get("lower_level_spatialization_active") is not None:
+            lines.append(
+                "- lower-level spatialization active: "
+                f"`{renderer.get('lower_level_spatialization_active')}`"
+            )
+        if renderer.get("atmos_decoder_active") is not None:
+            lines.append(f"- Atmos decoder active: `{renderer.get('atmos_decoder_active')}`")
+        if renderer.get("oar_mode_active") is not None:
+            lines.append(f"- OAR mode active: `{renderer.get('oar_mode_active')}`")
+        if renderer.get("audioqueue_forced_atmos_714") is not None:
+            lines.append(
+                "- AudioQueue forced 7.1.4 Atmos: "
+                f"`{renderer.get('audioqueue_forced_atmos_714')}`"
+            )
+        if renderer.get("auspatial_channel_layouts"):
+            layouts = ", ".join(f"`{layout}`" for layout in renderer["auspatial_channel_layouts"])
+            lines.append(f"- AUSpatialMixer layouts: {layouts}")
+    return "\n".join(lines) + "\n"
+
+
+def _format_audio_summary(audio: dict[str, Any]) -> str:
+    parts = [str(audio.get("format"))]
+    if audio.get("channels") is not None:
+        parts.append(f"ch={audio.get('channels')}")
+    if audio.get("sample_rate") is not None:
+        parts.append(f"{audio.get('sample_rate')} Hz")
+    if audio.get("spatialization") is not None:
+        parts.append(f"spatialization={audio.get('spatialization')}")
+    return " ".join(parts)
+
+
 def _hls_audio_group_kind(audio_group: str | None, audio_codec: str | None) -> str | None:
     group = (audio_group or "").lower()
     codec = (audio_codec or "").lower()
@@ -1168,4 +1246,11 @@ def _unique_events(events: list[dict[str, Any]], fields: tuple[str, ...]) -> lis
     return unique
 
 
-__all__ = ["LogCapture", "PREDICATE", "LOCAL_PLAYER_PREDICATE"]
+__all__ = [
+    "LogCapture",
+    "PREDICATE",
+    "LOCAL_PLAYER_PREDICATE",
+    "summarize_log_file",
+    "summarize_log_lines",
+    "tvlog_summary_markdown",
+]
