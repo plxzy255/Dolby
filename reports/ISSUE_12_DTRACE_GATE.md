@@ -708,6 +708,78 @@ This is now the clean contrast:
   normal-English Atmos group is incomplete, so TV.app selects the
   complete stereo `audio-stereo-160_download-*` group.
 
+### Ted Lasso downloaded `.movpkg` follow-up
+
+A second downloaded Apple TV+ title was inspected after the `Grass
+Lands` result:
+
+```text
+/Users/psp/Movies/TV/Media.localized/TV Shows/Ted Lasso/Season 1/The Hope That Kills You.movpkg
+```
+
+This package is useful because it initially appears to have an
+`audio-atmos_download-ap-aoc.tv.apple.com` stream marked
+`Complete=YES`. Raw stream location and segment counts change that
+interpretation: the complete Atmos stream belongs to an
+`InterstitialAssets/...movpkg` child package with only 2 media fragments,
+not to the main episode stream inventory.
+
+Relevant local package rows:
+
+| Stream / path | Group / name | Language | Role / accessibility | Codec / channels | Complete/downloaded status | Bytes / segments | Interpretation |
+|---|---|---|---|---|---|---|---|
+| `0-4482011-BELNUQV4ER6D7W2OC7FQFXZEEY5VMJF7` | main video | n/a | n/a | video | `Complete=YES` | 663,399,476 bytes; 493 `.frag`, 10 `.initfrag` | complete main episode video |
+| `1-4482011-5KHVNJOD7PS6MYKJKXGP43FGF5WJO6O6` | `audio-stereo-128_download-ap-aoc.tv.apple.com` / `English` | `en` | `com.apple.amp.tv.is-default`, `public.original-content` | `mp4a.40.2`, 2ch | `Complete=YES` | 31,684,679 bytes; 370 `.frag`, 10 `.initfrag` | complete main English stereo |
+| `InterstitialAssets/A4CIWHM67RY7B3N5W6OUQPVFN2JV3HSJ.movpkg/0-14238665-R465VTV4I6Q7OJZRBXKZRTXWVXCNITU7` | interstitial video | n/a | n/a | video | `Complete=YES` | 10,028,775 bytes; 2 `.frag`, 1 `.initfrag` | short interstitial/preroll asset |
+| `InterstitialAssets/A4CIWHM67RY7B3N5W6OUQPVFN2JV3HSJ.movpkg/1-14238665-4KUQGGFOY3RZ374YBMA4G4Q6RIROJZLK` | `audio-atmos_download-ap-aoc.tv.apple.com` | multiple languages in grouped manifest rows | includes normal and AD rows in grouped manifest table | `ec-3`, `16/JOC` | `Complete=YES`, but only inside the interstitial child package | 450,734 bytes; 2 `.frag`, 1 `.initfrag` | complete short interstitial Atmos, not complete main-episode Atmos |
+| referenced-only main manifest groups | `audio-ac3_download-ap-aoc.tv.apple.com`, `audio-atmos_download-ap-aoc.tv.apple.com`, `audio-ec3-stereo_download-ap-aoc.tv.apple.com`, other stereo groups | includes `English` and `English AD` rows | AD rows carry `public.accessibility.describes-video` | `ac-3`, `ec-3`, `mp4a.40.2` | no complete top-level main-episode audio stream found for these groups | no local main-episode media bytes/segments mapped | advertised alternatives, not complete local main audio |
+
+Search coverage for this package:
+
+```text
+files: 4863
+manifest-like files: 297
+StreamInfoBoot.xml: 96
+playlists: 101
+audio-atmos: 5
+audio-stereo: 5
+ec-3: 5
+mp4a.40.2: 5
+Complete>YES: 98
+download-ap-aoc: 197
+vod-ap-aoc: 0
+AD: 11
+description: 4
+accessibility: 4
+public.accessibility.describes-video: 4
+```
+
+A downloaded-playback capture was then run for the TV.app library item
+`The Hope That Kills You`:
+
+| Capture | Delivery | Selected group | Runtime / renderer | Result |
+|---|---|---|---|---|
+| `captures/issue12_ted_lasso_downloaded_20260523_045907.json` | `downloaded_movpkg` | `audio-stereo-128_download-ap-aoc.tv.apple.com` | selected variant `dvh1.05.01,mp4a.40.2`; `mediaFormatinfo` main playback `qaac`/2ch with app spatial false; transient `ec+3`/16ch mixer/decoder evidence also appeared | TV.app selected the complete local stereo stream for the main episode |
+
+This is the second downloaded-title data point supporting the
+package-content conclusion:
+
+> Highest Quality did not download a playable Atmos group for this
+> title/device/account/route. The Ted Lasso package advertises Atmos
+> alternates and contains a complete short interstitial Atmos stream,
+> but the main episode has complete local stereo and no complete
+> top-level main-episode Atmos stream. The stereo result is due to
+> downloaded package contents, not runtime selection of a complete
+> local Atmos group.
+
+The capture parser's generic `movpkg_atmos_variant_present_but_not_selected`
+verdict is accurate for log-visible HLS alternates, but too broad for
+package completeness. A `.movpkg` inventory-aware tool should distinguish
+`movpkg_atmos_variant_present_but_not_selected` from
+`movpkg_atmos_variant_missing_or_incomplete` by checking the selected
+group against `StreamInfoBoot.xml`, `Complete`, local media bytes, and
+segment counts.
+
 Clean downloaded-playback capture recipe:
 
 1. Disable network/Wi-Fi so playback must use the local download.
@@ -736,6 +808,18 @@ The parser now surfaces:
   `movpkg_figstreamplayer_selected_stereo`,
   `movpkg_atmos_variant_present_but_not_selected`, and
   `movpkg_atmos_variant_selected`
+
+Recommended next parser/tool extension:
+
+- Add a `.movpkg` inventory pass that can emit
+  `movpkg_atmos_variant_missing_or_incomplete` when the log advertises
+  `audio-atmos_download-*` but the package lacks a complete top-level
+  main-content Atmos stream with local media bytes and segment files.
+- Keep the existing log-only verdicts, but label them as HLS alternate
+  selection verdicts. The Ted Lasso follow-up shows why log-visible
+  Atmos alternates are not enough: a complete Atmos stream can belong
+  to an interstitial child package while main episode playback still has
+  only complete stereo locally.
 
 The saved 03:22 capture now parses as:
 

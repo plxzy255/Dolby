@@ -248,10 +248,27 @@ Execution update:
   stream online successfully. Its capture selected
   `audio-atmos_vod-ap-aoc.tv.apple.com`, reached `qc+3`/16ch, and
   reported app-level spatial rendering true.
-- The remaining high-value test is therefore not "make `Grass Lands`
-  stream by hiding files"; it is downloading another Atmos-marked Apple
-  TV+ title/episode and checking whether its local `.movpkg` has
-  `audio-atmos` marked `Complete=YES`.
+- A second downloaded Apple TV+ item, `Ted Lasso` / `The Hope That Kills
+  You`, was inspected at
+  `/Users/psp/Movies/TV/Media.localized/TV Shows/Ted Lasso/Season 1/The Hope That Kills You.movpkg`.
+  It has complete top-level main video and complete top-level main
+  `audio-stereo-128_download-ap-aoc.tv.apple.com`, but no complete
+  top-level main-episode Atmos audio stream was found. The only
+  `audio-atmos_download-ap-aoc.tv.apple.com` stream marked
+  `Complete=YES` is inside an `InterstitialAssets/...movpkg` child
+  package with 2 fragments and roughly 450 KB of audio data, so it is
+  not evidence that the full episode downloaded Atmos.
+- The Ted Lasso downloaded-playback capture selected
+  `downloaded_movpkg` / `audio-stereo-128_download-ap-aoc.tv.apple.com`.
+  It still showed transient `ec+3`/16ch lower-level evidence from
+  advertised alternates, but main playback resolved to stereo with
+  app-level spatial rendering false.
+- The remaining high-value test is therefore narrower: find a downloaded
+  Apple TV+ title/episode whose top-level main-episode `audio-atmos`
+  stream is actually `Complete=YES` with local media bytes and segment
+  inventory. If none appear across multiple titles, the practical
+  conclusion is that Highest Quality is not persisting playable main
+  Atmos for this title/device/account/route combination.
 
 Keep the local `.movpkg` recipe as a lower-priority diagnostic only. It is
 still useful if the goal is to test how TV.app handles a locally produced
