@@ -237,6 +237,22 @@ Run these Apple-managed tests first:
    title/device/account/route; the stereo result is package contents, not
    runtime selection.
 
+Execution update:
+
+- `Grass Lands` could not be cleanly forced online while its downloaded
+  package remained registered in TV.app. Normal play still chose
+  `downloaded_movpkg` / `audio-stereo-160_download-ap-aoc.tv.apple.com`.
+  Temporarily hiding the package made the cached library item fail or
+  stay stopped, and the package was restored.
+- A not-downloaded same-season Apple TV+ control, `Desert Lands`, did
+  stream online successfully. Its capture selected
+  `audio-atmos_vod-ap-aoc.tv.apple.com`, reached `qc+3`/16ch, and
+  reported app-level spatial rendering true.
+- The remaining high-value test is therefore not "make `Grass Lands`
+  stream by hiding files"; it is downloading another Atmos-marked Apple
+  TV+ title/episode and checking whether its local `.movpkg` has
+  `audio-atmos` marked `Complete=YES`.
+
 Keep the local `.movpkg` recipe as a lower-priority diagnostic only. It is
 still useful if the goal is to test how TV.app handles a locally produced
 HLS package, but it is no longer the most practical path for the user's own

@@ -643,6 +643,71 @@ appear without main playback settling on Atmos: the manifest advertises
 an Atmos-capable rendition, but the persistent package state does not
 contain a complete local Atmos stream for the normal selected playback.
 
+### Online Apple TV+ control capture
+
+An online control was run after the package inspection to separate
+title/service capability from downloaded-package completeness.
+
+First, the same `Grass Lands` item was started normally through
+TV.app's AppleScript-visible HLS media item while the download remained
+installed. That did **not** force online playback. It still resolved to
+the downloaded package:
+
+| Capture | Item | Download state | Delivery | Selected group | Runtime / renderer | Result |
+|---|---|---|---|---|---|---|
+| `captures/issue12_grass_lands_online_attempt_20260523_043238.json` | `Grass Lands` | downloaded | `downloaded_movpkg` | `audio-stereo-160_download-ap-aoc.tv.apple.com` | `qaac`/2ch; app spatial false | TV.app still chose the local complete stereo stream |
+
+Two non-destructive attempts were then made to force `Grass Lands`
+online without deleting the download. In both attempts, the package was
+temporarily renamed out of the way from a Terminal/tmux context with
+Movies access, and then restored in a `finally` block:
+
+| Capture | Method | Result |
+|---|---|---|
+| `captures/issue12_grass_lands_forced_online_20260523_043528.json` | play cached HLS media database item while package path was missing | TV.app failed lookup with `Can't get track 1 of library playlist 1 whose database ID = 56. (-1728)`; no playback events |
+| `captures/issue12_grass_lands_forced_online_url_20260523_043754.json` / `captures/issue12_grass_lands_forced_online_click_20260523_044103.json` | open Apple TV episode URL while package path was missing, then use keyboard/click UI controls | TV.app showed the episode page and Dolby Atmos badge, but playback stayed stopped; no HLS playback selection |
+
+That result means the current TV.app library state binds the downloaded
+`Grass Lands` episode to its local package. Hiding the package is not a
+clean way to make TV.app fall through to online playback; it leaves the
+episode in a broken "download expected" state until the package is
+restored.
+
+A different Apple TV+ Atmos episode from the same season, `Desert
+Lands`, was then opened by URL with no local download present. Its
+toolbar showed `Not Downloaded`, and playback started online. The
+capture confirmed that the service/title/route can select Atmos online:
+
+| Capture | Item | Download state | Delivery | Selected group | Runtime / renderer | Result |
+|---|---|---|---|---|---|---|
+| `captures/issue12_desert_lands_url_click_20260523_044429.json` | `Desert Lands` | not downloaded | `online_hls` | `audio-atmos_vod-ap-aoc.tv.apple.com` | `qc+3`/16ch; `mediaFormatinfo ... rendering spatial audio = true`; first true at 25.46s | online Apple TV+ selects Atmos and reaches app-level spatial rendering |
+
+Relevant parsed fields from that online control:
+
+```text
+pipeline_engine: FigStreamPlayer
+hls_delivery: online_hls
+selected_hls_audio_group: audio-atmos_vod-ap-aoc.tv.apple.com
+selected_hls_audio_group_kind: atmos
+allowedAudioSpatializationFormats: 0x7
+route: built-in speakers
+mediaFormatinfo: qaac/2ch false -> qc+3/16ch true
+mixer: qc+3 ch=16 content spatializable, status=2
+spatial_rendering_changed_count: 4
+app_spatial_rendering_ever_true: true
+app_spatial_rendering_last_state: true
+```
+
+This is now the clean contrast:
+
+- Apple TV+ **online HLS** for a not-downloaded Atmos episode can select
+  `audio-atmos_vod-*`, transition to `qc+3`/16ch, and reach app-level
+  spatial rendering true.
+- Apple TV+ **downloaded `.movpkg`** for `Grass Lands` uses the same
+  FigStreamPlayer family and permits multichannel, but its local
+  normal-English Atmos group is incomplete, so TV.app selects the
+  complete stereo `audio-stereo-160_download-*` group.
+
 Clean downloaded-playback capture recipe:
 
 1. Disable network/Wi-Fi so playback must use the local download.
