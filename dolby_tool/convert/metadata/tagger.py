@@ -38,6 +38,28 @@ def _bin() -> str:
     return shutil.which("AtomicParsley") or shutil.which("atomicparsley") or "AtomicParsley"
 
 
+def apply_artwork(path: Path, image: Path) -> dict[str, object]:
+    """Replace every `covr` atom on `path` with `image` (in place).
+
+    Use case: "season poster" — stamp the same image across every episode in
+    a season so TV.app uses it as the season tile (it derives the season
+    artwork from the episodes' covr atoms; if they all match, it picks that).
+    """
+    if not have_atomicparsley():
+        return {"applied": False, "reason": "AtomicParsley not installed"}
+    if not image.is_file():
+        return {"applied": False, "reason": f"artwork not found: {image}"}
+    args = [_bin(), str(path),
+            "--artwork", "REMOVE_ALL",
+            "--artwork", str(image),
+            "--overWrite"]
+    r = subprocess.run(args, capture_output=True, text=True)
+    if r.returncode != 0:
+        return {"applied": False, "reason": f"AtomicParsley exit {r.returncode}",
+                "stderr_tail": r.stderr.splitlines()[-5:]}
+    return {"applied": True, "image": str(image)}
+
+
 def apply(path: Path, meta: Metadata) -> dict[str, object]:
     """Write metadata onto `path` in place. Returns a summary dict."""
     if not have_atomicparsley():

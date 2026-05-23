@@ -1118,3 +1118,88 @@ function renderCaptureSummary(summary) {
 
   return card;
 }
+
+// ---------------------------------------------------------------------------
+// Convert + Tag tabs
+
+async function pickInto(targetId) {
+  const { paths } = await get('/api/pick');
+  if (paths.length) document.querySelector(targetId).value = paths[0];
+}
+$('#convert-pick-input')?.addEventListener('click', () => pickInto('#convert-input'));
+$('#convert-pick-artwork')?.addEventListener('click', () => pickInto('#convert-artwork'));
+$('#tag-pick-file')?.addEventListener('click', () => pickInto('#tag-file'));
+$('#tag-pick-artwork')?.addEventListener('click', () => pickInto('#tag-artwork'));
+
+function renderJsonResult(target, label, data) {
+  const card = el('div', { class: 'card' });
+  card.appendChild(el('h3', {}, label));
+  card.appendChild(el('pre', {}, JSON.stringify(data, null, 2)));
+  target.innerHTML = '';
+  target.appendChild(card);
+}
+
+function renderError(target, e) {
+  target.innerHTML = '';
+  target.appendChild(el('div', { class: 'error' }, e.message));
+}
+
+$('#convert-go')?.addEventListener('click', async () => {
+  const out = $('#convert-result');
+  const intInput = (id) => {
+    const v = $(id).value.trim();
+    return v ? parseInt(v, 10) : null;
+  };
+  const body = {
+    input: $('#convert-input').value.trim(),
+    output: $('#convert-output').value.trim(),
+    overwrite: $('#convert-overwrite').checked,
+    skip_pgs: $('#convert-skip-pgs').checked,
+    no_metadata: $('#convert-no-metadata').checked,
+    metadata_id: $('#convert-metadata-id').value.trim() || null,
+    storefront: $('#convert-storefront').value.trim() || 'US',
+    show: $('#convert-show').value.trim() || null,
+    season: intInput('#convert-season'),
+    episode: intInput('#convert-episode'),
+    season_artwork: $('#convert-artwork').value.trim() || null,
+  };
+  if (!body.input || !body.output) {
+    renderError(out, new Error('input and output paths are required'));
+    return;
+  }
+  out.innerHTML = '<div class="card"><div class="skeleton-title skeleton-shimmer"></div><div class="skeleton-line skeleton-shimmer" style="width:70%"></div></div>';
+  try {
+    const result = await api('/api/convert', body);
+    renderJsonResult(out, 'Convert result', result);
+  } catch (e) {
+    renderError(out, e);
+  }
+});
+
+$('#tag-go')?.addEventListener('click', async () => {
+  const out = $('#tag-result');
+  const intInput = (id) => {
+    const v = $(id).value.trim();
+    return v ? parseInt(v, 10) : null;
+  };
+  const body = {
+    file: $('#tag-file').value.trim(),
+    metadata_id: $('#tag-metadata-id').value.trim() || null,
+    storefront: $('#tag-storefront').value.trim() || 'US',
+    show: $('#tag-show').value.trim() || null,
+    season: intInput('#tag-season'),
+    episode: intInput('#tag-episode'),
+    season_artwork: $('#tag-artwork').value.trim() || null,
+  };
+  if (!body.file) {
+    renderError(out, new Error('file or directory is required'));
+    return;
+  }
+  out.innerHTML = '<div class="card"><div class="skeleton-title skeleton-shimmer"></div></div>';
+  try {
+    const result = await api('/api/tag', body);
+    renderJsonResult(out, 'Tag result', result);
+  } catch (e) {
+    renderError(out, e);
+  }
+});

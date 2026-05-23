@@ -295,7 +295,11 @@ def main_convert(argv: list[str]) -> None:
 
 def main_tag(argv: list[str]) -> None:
     parser = argparse.ArgumentParser(prog="dolby-tool tag")
-    parser.add_argument("file", help="Existing .m4v/.mp4 to tag in place.")
+    parser.add_argument(
+        "file",
+        help="Existing .m4v/.mp4 to tag in place, OR a directory (e.g. a "
+             "Season folder) — applied to every .mp4/.m4v inside.",
+    )
     parser.add_argument("--metadata-id", help="Apple TV content id.")
     parser.add_argument("--storefront", default="US")
     parser.add_argument("--language", default=None)
@@ -303,26 +307,52 @@ def main_tag(argv: list[str]) -> None:
     parser.add_argument("--show", help="Override show name (forces TV mode).")
     parser.add_argument("--season", type=int, help="Override season number.")
     parser.add_argument("--episode", type=int, help="Override episode number.")
+    parser.add_argument(
+        "--season-artwork",
+        help="Path to an image (jpg/png). Replaces the covr atom on every "
+             "targeted file with this image — TV.app will use it as the season "
+             "tile when every episode shares the same artwork. Skips Apple TV "
+             "lookup unless --metadata-id or --show is also passed.",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
-    path = Path(args.file).expanduser().resolve()
-    meta = resolve_metadata(
-        str(path),
-        storefront=args.storefront,
-        language=args.language,
-        content_id=args.metadata_id,
-        interactive=not args.non_interactive and sys.stdin.isatty(),
-        show_override=args.show,
-        season_override=args.season,
-        episode_override=args.episode,
-    )
-    summary: dict[str, object] = {"file": str(path)}
-    if meta is None:
-        summary["metadata"] = {"applied": False, "reason": "no match / skipped"}
+    target = Path(args.file).expanduser().resolve()
+    if target.is_dir():
+        files = sorted(p for p in target.iterdir()
+                       if p.is_file() and p.suffix.lower() in {".mp4", ".m4v"})
     else:
-        summary["matched_title"] = meta.title
-        summary["metadata"] = tagger.apply(path, meta)
+        files = [target]
+
+    art_path = Path(args.season_artwork).expanduser().resolve() if args.season_artwork else None
+    art_only = art_path is not None and not (args.metadata_id or args.show)
+
+    results: list[dict[str, object]] = []
+    for path in files:
+        entry: dict[str, object] = {"file": str(path)}
+        if not art_only:
+            meta = resolve_metadata(
+                str(path),
+                storefront=args.storefront,
+                language=args.language,
+                content_id=args.metadata_id,
+                interactive=not args.non_interactive and sys.stdin.isatty(),
+                show_override=args.show,
+                season_override=args.season,
+                episode_override=args.episode,
+            )
+            if meta is None:
+                entry["metadata"] = {"applied": False, "reason": "no match / skipped"}
+            else:
+                entry["matched_title"] = meta.title
+                entry["metadata"] = tagger.apply(path, meta)
+        if art_path is not None:
+            entry["artwork"] = tagger.apply_artwork(path, art_path)
+        results.append(entry)
+
+    summary: dict[str, object] = (
+        results[0] if len(results) == 1 else {"directory": str(target), "files": results}
+    )
     _print_summary(summary, as_json=args.json)
 
 
