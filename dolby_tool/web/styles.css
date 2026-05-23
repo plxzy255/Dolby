@@ -271,6 +271,7 @@ input[type=text]:focus {
 
 .pill {
   display: inline-block;
+  align-self: flex-start;
   padding: 2px 8px;
   border-radius: 12px;
   font-size: 12px;
@@ -326,7 +327,7 @@ th {
 }
 
 td.mono { font-family: var(--mono); }
-td.num { text-align: right; }
+td.num { text-align: left; }
 td.winner { color: var(--win); font-weight: 600; }
 td.loser { color: var(--bad); }
 
