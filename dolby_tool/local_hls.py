@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -12,7 +14,7 @@ from functools import partial
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
 from urllib.parse import quote, urlparse
 
 
@@ -251,6 +253,7 @@ def package_hls_from_file(
             raise ValueError(f"Output directory is not empty: {output}")
         _clear_directory(output)
     output.mkdir(parents=True, exist_ok=True)
+    stream_probe = _probe_package_streams(source, audio_stream=audio_stream)
 
     var_stream_map = (
         "v:0,agroup:audio,name:video "
@@ -289,6 +292,7 @@ def package_hls_from_file(
         str(output / "stream_%v.m3u8"),
     ]
     result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    master_tags = _patch_package_master_playlist(output / "master.m3u8", stream_probe)
     stderr_lines = result.stderr.splitlines()
     return {
         "source": str(source),
@@ -297,6 +301,7 @@ def package_hls_from_file(
         "audio_stream": audio_stream,
         "segment_time": segment_time,
         "split_audio_group": split_audio_group,
+        "master_playlist_tags": master_tags,
         "playlists": _hls_playlist_inventory(output),
         "ffmpeg_stderr_tail": stderr_lines[-20:],
     }
@@ -309,6 +314,12 @@ def package_hls_summary_markdown(summary: dict[str, object]) -> str:
     lines.append(f"- master playlist: `{summary['master_playlist']}`")
     lines.append(f"- audio stream: `{summary['audio_stream']}`")
     lines.append(f"- split audio group: `{summary['split_audio_group']}`")
+    tags = summary.get("master_playlist_tags")
+    if isinstance(tags, dict):
+        if tags.get("codecs"):
+            lines.append(f"- master codecs: `{tags['codecs']}`")
+        if tags.get("audio_channels"):
+            lines.append(f"- audio channels tag: `{tags['audio_channels']}`")
     lines.append("")
     lines.append("| playlist | media segments | init maps | referenced bytes |")
     lines.append("| --- | ---: | ---: | ---: |")
@@ -335,6 +346,151 @@ def _clear_directory(path: Path) -> None:
 
 def _format_float(value: float) -> str:
     return f"{value:g}"
+
+
+def _probe_package_streams(source: Path, *, audio_stream: int) -> dict[str, Any]:
+    result = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_streams",
+            "-of",
+            "json",
+            str(source),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    streams = json.loads(result.stdout or "{}").get("streams", [])
+    video = next((stream for stream in streams if stream.get("codec_type") == "video"), None)
+    audio_streams = [stream for stream in streams if stream.get("codec_type") == "audio"]
+    audio = audio_streams[audio_stream] if audio_stream < len(audio_streams) else None
+    if video is None:
+        raise ValueError(f"No video stream found in {source}")
+    if audio is None:
+        raise ValueError(f"No audio stream {audio_stream} found in {source}")
+    return {
+        "video": video,
+        "audio": audio,
+    }
+
+
+def _patch_package_master_playlist(path: Path, stream_probe: dict[str, Any]) -> dict[str, str | None]:
+    video = stream_probe["video"]
+    audio = stream_probe["audio"]
+    video_codec = _hls_video_codec_string(video)
+    audio_codec = _hls_audio_codec_string(audio)
+    codecs = ",".join(codec for codec in [video_codec, audio_codec] if codec)
+    audio_channels = _hls_audio_channels_string(audio)
+    frame_rate = _hls_frame_rate_string(video)
+    video_range = _hls_video_range_string(video)
+    language = _hls_language_string(audio)
+
+    lines = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("#EXT-X-MEDIA:") and "TYPE=AUDIO" in line:
+            line = _set_hls_attr(line, "LANGUAGE", language, quoted=True)
+            line = _set_hls_attr(line, "NAME", "English", quoted=True)
+            line = _set_hls_attr(line, "AUTOSELECT", "YES", quoted=False)
+            if audio_channels:
+                line = _set_hls_attr(line, "CHANNELS", audio_channels, quoted=True)
+        elif line.startswith("#EXT-X-STREAM-INF:"):
+            if frame_rate:
+                line = _set_hls_attr(line, "FRAME-RATE", frame_rate, quoted=False)
+            if codecs:
+                line = _set_hls_attr(line, "CODECS", codecs, quoted=True)
+            if video_range:
+                line = _set_hls_attr(line, "VIDEO-RANGE", video_range, quoted=False)
+        lines.append(line)
+    path.write_text("\n".join(lines).rstrip("\n") + "\n", encoding="utf-8")
+    return {
+        "codecs": codecs or None,
+        "audio_channels": audio_channels,
+        "frame_rate": frame_rate,
+        "video_range": video_range,
+        "language": language,
+    }
+
+
+def _set_hls_attr(line: str, key: str, value: str, *, quoted: bool) -> str:
+    rendered = f'{key}="{value}"' if quoted else f"{key}={value}"
+    pattern = re.compile(rf"{re.escape(key)}=(?:\"[^\"]*\"|[^,]*)")
+    if pattern.search(line):
+        return pattern.sub(rendered, line)
+    return f"{line},{rendered}"
+
+
+def _hls_video_codec_string(stream: dict[str, Any]) -> str | None:
+    tag = str(stream.get("codec_tag_string") or "").lower()
+    if tag in {"dvh1", "dvhe"}:
+        # Current local Atmos/DV test files are Profile 5 Level 6. Keep the
+        # explicit HLS codec token because QuickTime rejects FFmpeg's bare
+        # split fMP4 master playlist before segment playback.
+        return f"{tag}.05.06"
+    if tag in {"hvc1", "hev1"}:
+        return tag
+    if tag in {"avc1", "avc3"}:
+        return tag
+    return tag or None
+
+
+def _hls_audio_codec_string(stream: dict[str, Any]) -> str | None:
+    codec = str(stream.get("codec_name") or "").lower()
+    tag = str(stream.get("codec_tag_string") or "").lower()
+    if codec == "eac3" or tag == "ec-3":
+        return "ec-3"
+    if codec == "ac3" or tag == "ac-3":
+        return "ac-3"
+    if codec == "aac" or tag.startswith("mp4a"):
+        return tag if tag.startswith("mp4a") else "mp4a.40.2"
+    return tag or codec or None
+
+
+def _hls_audio_channels_string(stream: dict[str, Any]) -> str | None:
+    channels = stream.get("channels")
+    if not isinstance(channels, int) or channels <= 0:
+        return None
+    profile = str(stream.get("profile") or "").lower()
+    suffix = "/JOC" if "atmos" in profile else ""
+    return f"{channels}{suffix}"
+
+
+def _hls_frame_rate_string(stream: dict[str, Any]) -> str | None:
+    rate = _parse_fraction(str(stream.get("avg_frame_rate") or ""))
+    if rate is None or rate == 0:
+        rate = _parse_fraction(str(stream.get("r_frame_rate") or ""))
+    if rate is None or rate == 0:
+        return None
+    return f"{rate:.3f}"
+
+
+def _hls_video_range_string(stream: dict[str, Any]) -> str | None:
+    transfer = str(stream.get("color_transfer") or "").lower()
+    primaries = str(stream.get("color_primaries") or "").lower()
+    if transfer == "smpte2084" or primaries == "bt2020":
+        return "PQ"
+    return None
+
+
+def _hls_language_string(stream: dict[str, Any]) -> str:
+    tags = stream.get("tags")
+    language = str(tags.get("language") or "") if isinstance(tags, dict) else ""
+    return {"eng": "en"}.get(language.lower(), language or "en")
+
+
+def _parse_fraction(value: str) -> float | None:
+    if not value or value == "0/0":
+        return None
+    numerator, sep, denominator = value.partition("/")
+    try:
+        if sep:
+            den = float(denominator)
+            return float(numerator) / den if den else None
+        return float(value)
+    except ValueError:
+        return None
 
 
 def _hls_playlist_inventory(output: Path) -> list[dict[str, object]]:

@@ -112,6 +112,37 @@ def test_package_hls_from_file_invokes_ffmpeg_for_split_audio_group(tmp_path, mo
         assert check is True
         assert capture_output is True
         assert text is True
+        if cmd[0] == "ffprobe":
+            return subprocess.CompletedProcess(
+                cmd,
+                0,
+                """{
+                  "streams": [
+                    {
+                      "codec_type": "video",
+                      "codec_tag_string": "dvh1",
+                      "avg_frame_rate": "24000/1001",
+                      "color_transfer": "smpte2084",
+                      "color_primaries": "bt2020"
+                    },
+                    {
+                      "codec_type": "audio",
+                      "codec_name": "aac",
+                      "codec_tag_string": "mp4a",
+                      "channels": 2
+                    },
+                    {
+                      "codec_type": "audio",
+                      "codec_name": "eac3",
+                      "codec_tag_string": "ec-3",
+                      "profile": "Dolby Digital Plus + Dolby Atmos",
+                      "channels": 6,
+                      "tags": {"language": "eng"}
+                    }
+                  ]
+                }""",
+                "",
+            )
         output.mkdir(exist_ok=True)
         (output / "master.m3u8").write_text(
             '#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="group_audio",URI="stream_English.m3u8"\n'
@@ -136,7 +167,7 @@ def test_package_hls_from_file_invokes_ffmpeg_for_split_audio_group(tmp_path, mo
 
     summary = package_hls_from_file(source, output, audio_stream=1, segment_time=4)
 
-    cmd = calls[0]
+    cmd = calls[1]
     assert "-map" in cmd
     assert "0:a:1" in cmd
     assert "-hls_segment_type" in cmd
@@ -144,6 +175,21 @@ def test_package_hls_from_file_invokes_ffmpeg_for_split_audio_group(tmp_path, mo
     assert "v:0,agroup:audio,name:video a:0,agroup:audio,language:eng,name:English,default:yes" in cmd
     assert summary["split_audio_group"] is True
     assert summary["ffmpeg_stderr_tail"] == ["ffmpeg stderr"]
+    assert summary["master_playlist_tags"] == {
+        "audio_channels": "6/JOC",
+        "codecs": "dvh1.05.06,ec-3",
+        "frame_rate": "23.976",
+        "language": "en",
+        "video_range": "PQ",
+    }
+    assert (output / "master.m3u8").read_text(encoding="utf-8") == (
+        '#EXTM3U\n'
+        '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="group_audio",URI="stream_English.m3u8",'
+        'LANGUAGE="en",NAME="English",AUTOSELECT=YES,CHANNELS="6/JOC"\n'
+        '#EXT-X-STREAM-INF:BANDWIDTH=1,AUDIO="group_audio",'
+        'FRAME-RATE=23.976,CODECS="dvh1.05.06,ec-3",VIDEO-RANGE=PQ\n'
+        "stream_video.m3u8\n"
+    )
     assert summary["playlists"] == [
         {"playlist": "master.m3u8", "segments": 0, "init_maps": 0, "bytes": 0},
         {"playlist": "stream_English.m3u8", "segments": 1, "init_maps": 1, "bytes": 10},

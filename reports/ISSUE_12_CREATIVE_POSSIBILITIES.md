@@ -293,7 +293,15 @@ Execution update:
   `dolby-tool hls-package <local media file> <folder> --overwrite`
   stream-copies the first video stream and selected audio stream into fMP4
   HLS with a separate audio group by default, then the same `hls-serve`
-  QuickTime workflow applies.
+  QuickTime workflow applies. A bare FFmpeg split fMP4 master failed in
+  QuickTime with `CoreMediaErrorDomain error -12927`, so the tool now
+  auto-adds Apple-player-friendly `CODECS`, `VIDEO-RANGE`, `FRAME-RATE`,
+  and Atmos `CHANNELS="6/JOC"` tags when detected.
+- Clean QuickTime capture of the auto-patched `hls-package` output
+  reproduced the useful local-HLS path: `source=hls`, FigStreamPlayer,
+  AudioGroup `group_audio` classified as Atmos, source `ec-3`, runtime
+  `ec+3 ch=16`, Atmos decoder active, OAR active, forced 7.1.4 Atmos,
+  and AUSpatialMixer layouts `Atmos_7_1_4`, `Stereo`.
 - TV.app did not open that arbitrary HLS URL through `http`, `itls`,
   `itlss`, `itvls`, or `itvlss`; it produced no playback events and made no
   localhost fetches.

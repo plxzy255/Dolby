@@ -78,7 +78,11 @@ This is intentionally loopback-only by default. Use it for local-player
 controls where Python's basic `http.server` is not sufficient because the
 player requests `Range: bytes=...` media segments. `hls-package` stream-copies
 the first video stream and the selected audio stream by default, preserving
-E-AC-3/Atmos when the input and Apple's player support it.
+E-AC-3/Atmos when the input and Apple's player support it. It also annotates
+the generated master playlist with Apple-player-friendly `CODECS`,
+`VIDEO-RANGE`, `FRAME-RATE`, and Atmos `CHANNELS="6/JOC"` tags when those
+signals are detected; QuickTime can reject FFmpeg's bare split fMP4 master
+playlist before media playback starts.
 
 ### `.movpkg` Inventory
 For downloaded TV.app packages, inspect local HLS manifests and stream inventories:
