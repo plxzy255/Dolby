@@ -891,6 +891,11 @@ and strong CoreAudio Atmos/spatial mixer evidence without TV.app and without a
 custom player app. It does not answer the narrower TV.app-local question,
 because QuickTime does not emit TV.app's `ampplay mediaFormatinfo` flag.
 
+Tooling follow-up: `dolby-tool tvlog-parse` now parses saved compact raw logs
+into the normal structured capture summary, and
+`dolby-tool tvlog-capture --profile local-player` uses a broader
+QuickTime/Safari/WebKit predicate for future local-player controls.
+
 ## Bottom line (2026-05-23)
 
 - **For local-file Atmos playback with `is rendering spatial audio = true`

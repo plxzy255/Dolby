@@ -1,5 +1,5 @@
 from dolby_tool.compare import compare_files
-from dolby_tool.tvlog import LogCapture, _parse_line
+from dolby_tool.tvlog import LogCapture, _parse_line, summarize_log_lines, tvlog_summary_markdown
 
 
 def test_parse_line_figalternate():
@@ -418,6 +418,41 @@ def test_quicktime_local_hls_evidence_parses_figstream_and_auspatial():
     assert renderer["auspatial_channel_processors"] == [12]
     assert renderer["lower_level_spatialization_active"] is True
     assert renderer["verdict"] == "lower_level_spatialization_active"
+
+
+def test_tvlog_summary_markdown_renders_local_player_controls():
+    lines = [
+        (
+            "2026-05-23 05:22:30.733 Df QuickTime Player[9643:23338] "
+            "[com.apple.coremedia:player] <<<< FigStreamPlayer >>>> "
+            "to [<FigAlternate( 0):[0xb6095d400] [Peak/Avg 16000000/15600000] "
+            "[3840x1600] [AudioGroup atmos] [dvh1.05.06,ec-3] [VideoRange PQ]>]"
+        ),
+        (
+            "2026-05-23 05:22:30.745 Db QuickTime Player[9643:224f2] "
+            "AudioQueueNew: ->AudioQueueNewOutput 16 ch, 48000 Hz, ec+3"
+        ),
+        (
+            "2026-05-23 05:22:30.783 Df QuickTime Player[9643:224f2] "
+            "Forcing 7.1.4 decoder for Atmos"
+        ),
+        (
+            "2026-05-23 05:22:31.204 Df QuickTime Player[9643:23337] "
+            "[com.apple.coreaudio:AUSpatialMixerV2] "
+            "Setting audio channel layout Atmos_7_1_4"
+        ),
+    ]
+
+    summary = summarize_log_lines(lines)
+    rendered = tvlog_summary_markdown(summary)
+
+    assert "- source: `hls`" in rendered
+    assert "- pipeline engine: `FigStreamPlayer`" in rendered
+    assert "- selected HLS AudioGroup: `atmos`" in rendered
+    assert "- HLS audio codec: `ec-3`" in rendered
+    assert "- current audio: `ec+3 ch=16 48000 Hz`" in rendered
+    assert "- AudioQueue forced 7.1.4 Atmos: `True`" in rendered
+    assert "- AUSpatialMixer layouts: `Atmos_7_1_4`" in rendered
 
 
 def test_renderer_hints_parse_spatialmgr_binding_block():

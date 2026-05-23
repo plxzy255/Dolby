@@ -255,7 +255,9 @@ These match the focus areas in #10, #6, #4 and add parser hooks from the QuickTi
 - Parse FigFilePlayer vs FigStreamPlayer pipeline engine in `tvlog.py` and expose it in capture summaries.
 - Surface asbdFormatID and `immersive_rendering_requested` in Inspect / TV Capture, separate from the runtime audio pill.
 - Compare scoring: do not down-rank captures whose only missing signal is `mediaFormatinfo ... rendering spatial audio = true` when lower-level spatial machinery is active.
-- Optional: add a QuickTime/Safari raw-log capture mode or parser profile for local-player controls.
+- Added: `dolby-tool tvlog-parse` for saved raw logs and
+  `dolby-tool tvlog-capture --profile local-player` for QuickTime/Safari
+  control captures.
 - Optional future investigation: confirm whether `qc+3` asbdFormatID is exclusively emitted by FigStreamPlayer for HLS Atmos by capturing more Apple TV+ titles and at least one non-Apple HLS Atmos source if available.
 
 ## Acceptance-criteria check
