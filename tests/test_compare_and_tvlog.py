@@ -153,6 +153,22 @@ def test_tv_capture_keeps_current_best_and_observed_audio():
     ]
 
 
+def test_local_file_prefers_figfileplayer_when_old_stream_player_is_observed():
+    lines = [
+        "2026-05-23 TV <<<< FigStreamPlayer >>>> fpfs_SetRateWithOptionsAndAnchorTime: called for reason: StopForSurrogatePlayerSwitch",
+        "2026-05-23 TV <<<< FigFilePlayer >>>> FigPlayerFileCreateWithOptions: returning player",
+        "2026-05-23 TV FILE_PLAYER HEVC enc=6 3840x1600",
+        "2026-05-23 TV <<<< FigFilePlayer >>>> fp_buildAudioRenderPipelineForTrack called",
+        "2026-05-23 TV AudioQueueNewOutput 16 ch, 48000 Hz, ec+3",
+    ]
+
+    playback = summarize_log_lines(lines)["playback"]
+
+    assert playback["source"] == "local_file"
+    assert playback["pipeline_engines_observed"] == ["FigStreamPlayer", "FigFilePlayer"]
+    assert playback["pipeline_engine"] == "FigFilePlayer"
+
+
 def test_audio_status_text_is_normalized_from_codec_labels():
     lines = [
         "AUDIO_FORMAT table:",

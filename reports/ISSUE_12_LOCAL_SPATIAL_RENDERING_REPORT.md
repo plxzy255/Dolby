@@ -143,7 +143,7 @@ File-level variants are not expected to change TV.app behavior unless they make 
 | QuickTime Player local file control | MacBook Pro Speakers | FigFilePlayer | local E-AC-3 / runtime `ec+3 ch=16` | `ec+3` | n/a, no TV.app mediaFormatinfo line observed | mIsAtmos=1; mIsOARMode=1; AudioQueue spatialization enabled; AUSpatialMixerV2 algorithm 7; 16ch ec+3 AudioQueue | Does not unlock FigStreamPlayer/qc+3, but proves strong lower-level Apple spatial path for local playback |
 | Local HLS packaging opened in QuickTime | MacBook Pro Speakers | FigStreamPlayer | HLS `ec-3` Atmos group / CoreAudio `ec+3 ch=16` input | `ec+3` | n/a, no TV.app mediaFormatinfo line observed | mIsAtmos=1; mIsOARMode=1; AudioQueue forced 7.1.4 Atmos decoder; AUSpatialMixerV2 `Atmos_7_1_4`; active byterange HLS playback | Strongest Apple-native local alternative so far, but not TV.app |
 | Local HLS packaging opened in TV.app URL schemes | MacBook Pro Speakers | none observed | none | none | no events | none | `http`, `itls`, `itlss`, `itvls`, `itvlss` produced no localhost fetches or playback events |
-| MOV/M4V/remux variants | not tested yet | predicted FigFilePlayer | predicted `ec+3` | predicted `ec+3` | predicted no | unknown | Cheap file-container falsification tests remain |
+| MOV/M4V/remux variants | MacBook Pro Speakers | FigFilePlayer | local E-AC-3 / runtime `ec+3 ch=16` | `ec+3` | no | mIsAtmos=1; mIsOARMode=1; AudioQueue forced 7.1.4 Atmos decoder; AUSpatialMixerV2 `Atmos_7_1_4`; lower-level spatial active | MP4 faststart, M4V, and MOV remux clips all stayed app-spatial false |
 
 ## Answers to the issue questions
 
@@ -215,6 +215,13 @@ File-level variants are not expected to change TV.app behavior unless they make 
   - `tvlog-capture --profile local-player` recorded 0 playback events
   - this is a launch/load failure, not evidence about Safari Atmos decode
     or spatialization behavior
+- TV.app remux/container controls:
+  - created 180s lossless clips from the same `Blood and Bone.mp4` source
+    as MP4 faststart, M4V, and MOV
+  - MP4 and M4V preserved `dvh1`; MOV remux exposed `hev1`
+  - all three played as `local_file` / FigFilePlayer with `ec+3 ch=16`
+  - all three kept lower-level Atmos/spatial evidence active but
+    `app_spatial_rendering_ever_true = false`
 
 ## What remains to test
 
@@ -222,9 +229,6 @@ File-level variants are not expected to change TV.app behavior unless they make 
   QuickTime local HTTP HLS.
 - Optional Safari follow-up only if the local HTTP page-load failure is
   solved first.
-- MOV remux.
-- M4V copy/remux.
-- MP4/M4V faststart rebuild.
 - Optional: Apple-managed downloaded/offline TV.app item, if available.
 - Optional: non-Apple HLS Atmos source, if available.
 
@@ -266,6 +270,8 @@ These match the focus areas in #10, #6, #4 and add parser hooks from the QuickTi
 ## Follow-up issues to create or update
 
 - Parse FigFilePlayer vs FigStreamPlayer pipeline engine in `tvlog.py` and expose it in capture summaries.
+- Prefer the source-consistent engine in summaries when stale/surrogate
+  player noise logs both FigFilePlayer and FigStreamPlayer.
 - Surface asbdFormatID and `immersive_rendering_requested` in Inspect / TV Capture, separate from the runtime audio pill.
 - Compare scoring: do not down-rank captures whose only missing signal is `mediaFormatinfo ... rendering spatial audio = true` when lower-level spatial machinery is active.
 - Added: `dolby-tool tvlog-parse` for saved raw logs and
@@ -291,7 +297,7 @@ These match the focus areas in #10, #6, #4 and add parser hooks from the QuickTi
 - [x] QuickTime Player local-HLS control captured; FigStreamPlayer with Atmos/CoreAudio spatial mixer evidence.
 - [x] QuickTime Player local-HLS path reproduced with merged `hls-prepare`, `hls-serve`, and `tvlog-capture --profile local-player` tooling.
 - [x] Safari local-HLS launch attempted; current result is failed-page tabs and 0 playback events, so Safari remains unproven rather than a working path.
-- [ ] At least one local-file container/remux variant tested. Not completed yet.
+- [x] Local-file MP4 faststart, M4V, and MOV remux variants tested; all stayed FigFilePlayer/ec+3/app-false.
 - [x] Local HLS packaging test completed for QuickTime; TV.app URL-scheme launch did not work.
 - [x] Report distinguishes app-level spatial rendering from lower-level spatial / Atmos evidence.
 - [x] Report does not claim `ec+3` is lower quality than `qc+3` by token name.
