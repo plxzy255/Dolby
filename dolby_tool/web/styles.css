@@ -126,12 +126,34 @@ main {
   border-radius: 12px;
   padding: 24px;
   text-align: center;
-  transition: 0.15s;
+  transition: background-color 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dropzone:hover {
+  border-color: var(--text-dim);
+  background: rgba(26, 31, 38, 0.7);
 }
 
 .dropzone.drag {
   border-color: var(--accent);
-  background: #1c2230;
+  background: rgba(79, 158, 255, 0.08);
+  box-shadow: 0 0 16px rgba(79, 158, 255, 0.25);
+  transform: scale(1.01);
+  animation: dropzonePulse 1.5s ease-in-out infinite alternate;
+}
+
+@keyframes dropzonePulse {
+  0% {
+    border-color: var(--accent);
+    box-shadow: 0 0 12px rgba(79, 158, 255, 0.15);
+  }
+  100% {
+    border-color: var(--accent-strong);
+    box-shadow: 0 0 24px rgba(79, 158, 255, 0.35);
+  }
 }
 
 .dropzone p { margin: 0 0 12px; color: var(--text-dim); }
