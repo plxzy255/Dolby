@@ -555,25 +555,51 @@ Current evidence table:
 | TV.app picker | `English` | English | normal dialogue | selected group resolved to stereo in logs | selected | n/a | normal English maps to stereo for this package/capture |
 | TV.app picker | `English AD` | English | likely Audio Description | not captured | unknown | n/a | AD is not the desired quality track unless a follow-up log maps it to Atmos |
 
-Metadata/manifests still need a direct package inspection. In this
-workspace the original Apple TV `Grass Lands.movpkg` was not found
-under the usual local TV containers during this follow-up, so the
-`boot.xml` / `root.xml` / playlist / segment-completeness table cannot
-yet be filled from package files. The current package-level verdict is
-therefore **not** "Atmos is complete but TV.app ignored it"; it is:
+The package was later located at:
+
+```text
+/Users/psp/Movies/TV/Media.localized/TV Shows/Prehistoric Planet/Season 3/Grass Lands.movpkg
+```
+
+macOS currently blocks the Codex process from reading the package
+contents directly (`Operation not permitted` under `~/Movies/TV`).
+Finder/AppleScript can enumerate item names, but direct reads of
+`root.xml`, `boot.xml`, playlists, and `StreamInfo*.xml` still fail
+without Full Disk Access for Codex. Because the readable manifest text
+is what maps stream folders to `audio-stereo-*`, `audio-atmos-*`,
+roles, codecs, and `Complete=YES`, this package cannot yet be used to
+prove Atmos completeness.
+
+Partial local inventory visible through Finder:
+
+| Package item | Visible local status | Interpretation |
+|---|---|---|
+| `root.xml` | present, 380 bytes | package root exists, but contents not readable yet |
+| `boot.xml` | present | package boot metadata exists, but contents not readable yet |
+| `Data/` | 6 `Playlist-*-master.m3u8` files, each 491,346 bytes, plus six 913-byte descriptors | master playlists are locally present, but contents not readable yet |
+| `0-4834137-AL4WNSYVTCHVNSPSM5EDIIOAAMMJEQAR/` | 602 items: 590 `.frag`, 9 `.initfrag`, one `.m3u8`, `StreamInfoBoot.xml`, `StreamInfoRoot.xml` | large populated media stream, identity unknown until manifest text is readable |
+| `1-4834137-ATP2X4XE2REC6Y7VVXWIN4RVIN5DZFSW/` | 428 items: 416 `.frag`, 9 `.initfrag`, one `.m3u8`, `StreamInfoBoot.xml`, `StreamInfoRoot.xml` | large populated media stream, identity unknown until manifest text is readable |
+| many `2-4834137-*` folders | usually 45-47 `.frag` files, one `.m3u8`, `StreamInfoBoot.xml`, `StreamInfoRoot.xml`, no `.initfrag`; several shorter 14-15 fragment folders | likely auxiliary/text/alternate streams, but exact language/role/codec requires manifest text |
+| `0-14294715-*`, `0-5964765-*`, `1-0-*` | smaller populated streams with `.frag`, `.initfrag`, `.m3u8`, and StreamInfo files | likely interstitial/preroll or auxiliary program streams, exact role unknown |
+
+The package is therefore definitely not an empty shell: it contains
+local master playlists, stream info files, and downloaded fragments.
+But the current package-level verdict is still **not** "Atmos is
+complete but TV.app ignored it"; it is:
 
 > TV.app downloaded `.movpkg` has the right FigStreamPlayer
-> infrastructure and selected a downloaded stereo AudioGroup despite
-> Highest Quality. A transient `ec+3`/16ch spatializable evaluation
-> suggests an Atmos-capable variant/source may exist, but local
-> completeness is unverified. Next layer is package-manifest
-> completeness and TV.app selection policy / title-specific download
-> behavior.
+> infrastructure, a populated local package, and selected a downloaded
+> stereo AudioGroup despite Highest Quality. A transient `ec+3`/16ch
+> spatializable evaluation suggests an Atmos-capable variant/source may
+> exist, but local Atmos completeness is unverified until the package
+> manifests can be read. Next layer is package-manifest completeness and
+> TV.app selection policy / title-specific download behavior.
 
-When the `.movpkg` is available again, inspect it directly:
+Once Codex or Terminal has Full Disk Access for `~/Movies/TV`, inspect
+it directly:
 
 ```sh
-MOVPKG='/path/to/Grass Lands.movpkg'
+MOVPKG='/Users/psp/Movies/TV/Media.localized/TV Shows/Prehistoric Planet/Season 3/Grass Lands.movpkg'
 find "$MOVPKG" -maxdepth 4 \( -name boot.xml -o -name root.xml -o -name '*.m3u8' -o -name 'StreamInfoBoot.xml' \) -print
 rg -n 'audio-atmos|audio-stereo|ec-3|mp4a\.40\.2|Complete=YES|download-ap-aoc|vod-ap-aoc|AD|description|accessibility|public\.accessibility|describes-video' "$MOVPKG"
 find "$MOVPKG" -mindepth 1 -maxdepth 1 -type d -print0 |
