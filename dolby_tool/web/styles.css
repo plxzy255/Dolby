@@ -348,7 +348,7 @@ th {
 }
 
 td.mono { font-family: var(--mono); }
-td.num { text-align: left; }
+td.num { text-align: right; }
 td.winner { color: var(--win); font-weight: 600; }
 td.loser { color: var(--bad); }
 
@@ -637,7 +637,7 @@ details pre {
   pointer-events: none;
   opacity: 0;
   transform: translateY(-4px);
-  transition: opacity 0.15s, transform 0.15s;
+  transition: opacity 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
   z-index: 25;
 }
 .copy-wrap.copy-ok .copy-status,
@@ -739,9 +739,3 @@ details pre {
     transform: translateY(0);
   }
 }
-
-/* Elastic transitions for copy popups and modals */
-.copy-status {
-  transition: opacity 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
