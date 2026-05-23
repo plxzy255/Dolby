@@ -199,6 +199,13 @@ File-level variants are not expected to change TV.app behavior unless they make 
   - selected `[AudioGroup atmos] [dvh1.05.06,ec-3]`
   - created an `ec+3` 16ch AudioQueue and forced a 7.1.4 Atmos decoder
   - initialized `AUSpatialMixerV2` with `Atmos_7_1_4`
+  - reproduced end-to-end with merged tooling via `hls-prepare` ->
+    `hls-serve` -> QuickTime -> `tvlog-capture --profile local-player`;
+    the fresh capture reports `source=hls`, `pipeline_engine=FigStreamPlayer`,
+    selected AudioGroup `atmos`, codec `ec-3`, current/best audio
+    `ec+3 ch=16 48000 Hz spatialization=yes`, Atmos decoder active, OAR
+    active, forced 7.1.4 Atmos, and AUSpatialMixer layouts
+    `Atmos_7_1_4`, `Stereo`
 - TV.app arbitrary local-HLS launch controls:
   - `http`, `itls`, `itlss`, `itvls`, and `itvlss` did not fetch from the
     localhost server and produced no playback events
@@ -272,6 +279,7 @@ These match the focus areas in #10, #6, #4 and add parser hooks from the QuickTi
 - [x] Additional TV.app local direct-open/library-style captures observed; still FigFilePlayer/ec+3/app-false.
 - [x] QuickTime Player local-file control captured; still FigFilePlayer/ec+3 but with stronger lower-level CoreAudio spatialization evidence.
 - [x] QuickTime Player local-HLS control captured; FigStreamPlayer with Atmos/CoreAudio spatial mixer evidence.
+- [x] QuickTime Player local-HLS path reproduced with merged `hls-prepare`, `hls-serve`, and `tvlog-capture --profile local-player` tooling.
 - [ ] At least one local-file container/remux variant tested. Not completed yet.
 - [x] Local HLS packaging test completed for QuickTime; TV.app URL-scheme launch did not work.
 - [x] Report distinguishes app-level spatial rendering from lower-level spatial / Atmos evidence.
