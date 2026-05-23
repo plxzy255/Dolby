@@ -12,7 +12,8 @@ This report documents live dtrace observations from a single session on
 - macOS: 26.5 (25F71), Mac15,6
 - TV.app: 1.6.5 (PID 2446 during HLS phase)
 - Route: MacBook Pro Speakers, 2ch, built-in
-- SIP config: `Debugging Restrictions: disabled`, `DTrace Restrictions: disabled`
+- DTrace session SIP config: `Debugging Restrictions: disabled`,
+  `DTrace Restrictions: disabled`
   (set via `csrutil enable --without debug --without dtrace` from Recovery)
 
 Both `task_for_pid` and dtrace pid-provider attach to Apple-signed apps
@@ -421,17 +422,23 @@ local-file items.
 The behavioral finding above does **not** imply that TV.app can be
 practically patched on a normal SIP-enabled system.
 
-Local checks on the same machine showed:
+Current post-trace local checks on the same machine showed:
 
 - `csrutil status`: `System Integrity Protection status: enabled.`
 - `csrutil authenticated-root status`: `Authenticated Root status:
   enabled.`
-- `/` is mounted `sealed` and `read-only`.
+- `/` is mounted `sealed` and `read-only`:
+  `/dev/disk3s1s1 on / (apfs, sealed, local, read-only, journaled)`.
 - `/System/Applications/TV.app` and its executable are marked
   `restricted`.
 - TV.app's code signature has `flags=0x12000(library-validation,runtime)`
   and `Platform identifier=26`.
-- TV.app does not carry a `disable-library-validation` entitlement.
+- TV.app does not carry `com.apple.security.cs.disable-library-validation`,
+  `com.apple.security.cs.allow-dyld-environment-variables`,
+  `com.apple.security.cs.get-task-allow`, or related code-signing
+  exception entitlements.
+- Gatekeeper identifies TV.app as `source=Apple System` /
+  `origin=Software Signing`.
 
 That combination blocks the normal non-invasive hook routes:
 
@@ -447,16 +454,20 @@ TV.app strings do expose preference names such as
 `downloadDolbyAtmos`, `downloadMultichannel`,
 `preferredDolbyAtmosPlaySetting`, and `multichannelAudioStrategy`,
 plus log strings for `AVCFPlayerSetMultichannelAudioStrategy`.
-Those are worth knowing about, but they do not currently provide a
+Those are worth knowing about, but `defaults read com.apple.TV` did not
+show a current `spatialPreference` key or an equivalent local-file
+spatialization override, and these strings do not currently provide a
 documented or observed override for
 `mpc_updateAVAudioSpatializationFormatsForPlayerAudioFormat:
 spatialPreference:` on local-file items.
 
-Conclusion: with full SIP and authenticated root enabled, a practical
-TV.app hook/patch of the local-file spatial preference is **not
-available**. Doing this as an actual TV.app patch would require
-weakening SIP/debug/library-validation protections or modifying the
-sealed system/app signature path, which is outside the current
+Conclusion: with the normal SIP-enabled app/platform protections still in
+place, a practical TV.app hook/patch of the local-file spatial preference
+is **not available**. The DTrace-only debug/DTrace exception was enough
+to observe the call site, not enough to make TV.app injectable or
+patchable. Doing this as an actual TV.app patch would require weakening
+library-validation/task-port protections or modifying the sealed
+system/app signature path, which is outside the current
 TV.app/downloaded-content/local-playback solution path.
 
 ### Updated gate model
