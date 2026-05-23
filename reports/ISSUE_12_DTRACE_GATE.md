@@ -416,6 +416,49 @@ TV.app's own choice of `spatialPreference` value passed to
 `mpc_updateAVAudioSpatializationFormatsForPlayerAudioFormat:` for
 local-file items.
 
+### TV.app hook / patch feasibility with SIP enabled
+
+The behavioral finding above does **not** imply that TV.app can be
+practically patched on a normal SIP-enabled system.
+
+Local checks on the same machine showed:
+
+- `csrutil status`: `System Integrity Protection status: enabled.`
+- `csrutil authenticated-root status`: `Authenticated Root status:
+  enabled.`
+- `/` is mounted `sealed` and `read-only`.
+- `/System/Applications/TV.app` and its executable are marked
+  `restricted`.
+- TV.app's code signature has `flags=0x12000(library-validation,runtime)`
+  and `Platform identifier=26`.
+- TV.app does not carry a `disable-library-validation` entitlement.
+
+That combination blocks the normal non-invasive hook routes:
+
+| Route | SIP-enabled result |
+| --- | --- |
+| Modify `/System/Applications/TV.app` on disk | blocked by sealed read-only system volume, restricted file flags, and code-signing |
+| Patch/re-sign a copy as TV.app | loses Apple platform signature/private entitlements and is not the same TV.app product path |
+| `DYLD_INSERT_LIBRARIES` / dylib injection | blocked for protected Apple/platform binaries, and by hardened-runtime library validation |
+| Frida / LLDB / task-port patching | not a reliable full-SIP path for an Apple platform binary; the earlier DTrace work already required disabling debug/DTrace SIP restrictions |
+| `defaults` preference override | no observed preference key maps to the local-file `spatialPreference` call site |
+
+TV.app strings do expose preference names such as
+`downloadDolbyAtmos`, `downloadMultichannel`,
+`preferredDolbyAtmosPlaySetting`, and `multichannelAudioStrategy`,
+plus log strings for `AVCFPlayerSetMultichannelAudioStrategy`.
+Those are worth knowing about, but they do not currently provide a
+documented or observed override for
+`mpc_updateAVAudioSpatializationFormatsForPlayerAudioFormat:
+spatialPreference:` on local-file items.
+
+Conclusion: with full SIP and authenticated root enabled, a practical
+TV.app hook/patch of the local-file spatial preference is **not
+available**. Doing this as an actual TV.app patch would require
+weakening SIP/debug/library-validation protections or modifying the
+sealed system/app signature path, which is outside the current
+TV.app/downloaded-content/local-playback solution path.
+
 ### Updated gate model
 
 The TV.app capture above identified the AVF-layer intersection as
