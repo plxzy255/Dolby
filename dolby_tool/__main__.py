@@ -59,6 +59,14 @@ def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "hls-package-capture":
         _main_hls_package_capture(sys.argv[2:])
         return
+    if len(sys.argv) > 1 and sys.argv[1] == "convert":
+        from .convert.cli import main_convert
+        main_convert(sys.argv[2:])
+        return
+    if len(sys.argv) > 1 and sys.argv[1] == "tag":
+        from .convert.cli import main_tag
+        main_tag(sys.argv[2:])
+        return
 
     parser = argparse.ArgumentParser(prog="dolby-tool")
     parser.add_argument("--host", default="127.0.0.1")

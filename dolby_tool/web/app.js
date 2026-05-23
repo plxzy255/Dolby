@@ -805,6 +805,9 @@ async function _copyFromButton(wrap, text) {
 
 function renderCaptureSummary(summary) {
   const card = el('div', { class: 'card capt-summary' });
+  const eventsReturned = summary.events_returned ?? (summary.events ? summary.events.length : summary.event_count);
+  const eventsDropped = summary.events_dropped ?? Math.max(0, summary.event_count - eventsReturned);
+  const rawEventLimit = summary.raw_event_limit ?? eventsReturned;
 
   // header row: title + copy icon
   const hdr = el('div', { class: 'capt-summary-hdr' });
@@ -821,6 +824,9 @@ function renderCaptureSummary(summary) {
     onclick: async () => {
       await _copyFromButton(copyWrap, JSON.stringify({
         event_count: summary.event_count,
+        events_returned: eventsReturned,
+        events_dropped: eventsDropped,
+        raw_event_limit: rawEventLimit,
         duration_s: summary.duration_s,
         playback: summary.playback,
       }, null, 2));
@@ -842,6 +848,15 @@ function renderCaptureSummary(summary) {
   hdr.appendChild(copyWrap);
   card.appendChild(hdr);
   card.appendChild(el('div', { class: 'filename' }, `${summary.event_count} events in ${summary.duration_s.toFixed(1)}s`));
+  if (eventsDropped > 0) {
+    card.appendChild(el('div', { class: 'info-note' },
+      `Raw event JSON is capped to the newest ${eventsReturned} of ${summary.event_count} parsed events; ${eventsDropped} older events were dropped from memory.`,
+    ));
+  } else {
+    card.appendChild(el('div', { class: 'info-note' },
+      `Raw event JSON includes ${eventsReturned} retained event${eventsReturned === 1 ? '' : 's'}; cap ${rawEventLimit}.`,
+    ));
+  }
 
   const p = summary.playback || {};
   if (!p || Object.keys(p).length === 0) {
@@ -997,7 +1012,10 @@ function renderCaptureSummary(summary) {
   }
 
   // Raw event log
-  card.appendChild(el('details', {}, el('summary', {}, `All ${summary.event_count} events`), el('pre', {}, JSON.stringify(summary.events, null, 2))));
+  const rawSummary = eventsDropped > 0
+    ? `Newest ${eventsReturned} of ${summary.event_count} events`
+    : `All ${eventsReturned} retained events`;
+  card.appendChild(el('details', {}, el('summary', {}, rawSummary), el('pre', {}, JSON.stringify(summary.events, null, 2))));
 
   return card;
 }
