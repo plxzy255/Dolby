@@ -895,6 +895,8 @@ Tooling follow-up: `dolby-tool tvlog-parse` now parses saved compact raw logs
 into the normal structured capture summary, and
 `dolby-tool tvlog-capture --profile local-player` uses a broader
 QuickTime/Safari/WebKit predicate for future local-player controls.
+`dolby-tool hls-serve <folder> --open quicktime` now provides the
+Range-capable localhost server needed for this workflow.
 
 ## Bottom line (2026-05-23)
 

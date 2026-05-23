@@ -58,6 +58,17 @@ uv run python -m dolby_tool tvlog-parse captures/alt_paths/example.log
 uv run python -m dolby_tool tvlog-capture --profile local-player --seconds 60
 ```
 
+### Local HLS Serve
+Serve a prepared HLS folder with byte-range support for QuickTime/Safari tests:
+
+```bash
+uv run python -m dolby_tool hls-serve .tmp/alt_hls --open quicktime
+```
+
+This is intentionally loopback-only by default. Use it for local-player
+controls where Python's basic `http.server` is not sufficient because the
+player requests `Range: bytes=...` media segments.
+
 ### `.movpkg` Inventory
 For downloaded TV.app packages, inspect local HLS manifests and stream inventories:
 
@@ -80,6 +91,7 @@ dolby_tool/
   compare.py      # diff/rank logic
   tvlog.py        # log stream subprocess + parser
   movpkg.py       # downloaded .movpkg inventory parser
+  local_hls.py    # Range-capable local HLS server
   web/
     index.html
     app.js

@@ -258,6 +258,9 @@ These match the focus areas in #10, #6, #4 and add parser hooks from the QuickTi
 - Added: `dolby-tool tvlog-parse` for saved raw logs and
   `dolby-tool tvlog-capture --profile local-player` for QuickTime/Safari
   control captures.
+- Added: `dolby-tool hls-serve <folder> --open quicktime` for a
+  Range-capable localhost server that matches the successful local-HLS
+  playback setup.
 - Optional future investigation: confirm whether `qc+3` asbdFormatID is exclusively emitted by FigStreamPlayer for HLS Atmos by capturing more Apple TV+ titles and at least one non-Apple HLS Atmos source if available.
 
 ## Acceptance-criteria check
