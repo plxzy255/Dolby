@@ -302,7 +302,31 @@ $('#inspect-path').addEventListener('keydown', (e) => {
 async function runInspect(path) {
   if (!path) return;
   const out = $('#inspect-result');
-  out.innerHTML = '<div class="card"><h2>Inspecting…</h2></div>';
+  out.innerHTML = `
+    <div class="card" style="pointer-events: none;">
+      <div class="skeleton-title skeleton-shimmer"></div>
+      <div class="skeleton-line skeleton-shimmer" style="width: 60%"></div>
+      <div class="skeleton-line skeleton-shimmer" style="width: 35%; height: 24px; border-radius: 12px; margin: 16px 0 12px 0;"></div>
+      
+      <div style="height: 12px; width: 80px; background: var(--border); border-radius: 3px; margin: 24px 0 12px 0;"></div>
+      <div class="skeleton-grid" style="margin-bottom: 24px;">
+        <div class="skeleton-kv skeleton-shimmer"></div>
+        <div class="skeleton-kv skeleton-shimmer"></div>
+        <div class="skeleton-kv skeleton-shimmer"></div>
+        <div class="skeleton-kv skeleton-shimmer"></div>
+      </div>
+      
+      <div style="height: 12px; width: 60px; background: var(--border); border-radius: 3px; margin: 24px 0 12px 0;"></div>
+      <div class="skeleton-grid">
+        <div class="skeleton-kv skeleton-shimmer"></div>
+        <div class="skeleton-kv skeleton-shimmer"></div>
+        <div class="skeleton-kv skeleton-shimmer"></div>
+        <div class="skeleton-kv skeleton-shimmer"></div>
+        <div class="skeleton-kv skeleton-shimmer"></div>
+        <div class="skeleton-kv skeleton-shimmer"></div>
+      </div>
+    </div>
+  `;
   try {
     const spec = await api('/api/inspect', { path });
     out.innerHTML = '';
@@ -515,7 +539,21 @@ $('#compare-clear').addEventListener('click', () => {
 $('#compare-go').addEventListener('click', async () => {
   const out = $('#compare-result');
   if (comparePaths.size < 1) { alert('Add at least one file.'); return; }
-  out.innerHTML = '<div class="card"><h2>Comparing…</h2></div>';
+  out.innerHTML = `
+    <div class="card" style="pointer-events: none;">
+      <div class="skeleton-title skeleton-shimmer" style="width: 25%;"></div>
+      <div class="skeleton-grid" style="margin-bottom: 24px;">
+        <div class="skeleton-kv skeleton-shimmer"></div>
+        <div class="skeleton-kv skeleton-shimmer"></div>
+      </div>
+      <div class="skeleton-table">
+        <div class="skeleton-row skeleton-shimmer" style="width: 100%; height: 28px; background: var(--border); margin-bottom: 12px;"></div>
+        <div class="skeleton-row skeleton-shimmer" style="width: 100%;"></div>
+        <div class="skeleton-row skeleton-shimmer" style="width: 100%;"></div>
+        <div class="skeleton-row skeleton-shimmer" style="width: 100%;"></div>
+      </div>
+    </div>
+  `;
   try {
     const res = await api('/api/compare', { paths: Array.from(comparePaths), weights: compareWeightsFromUi() });
     out.innerHTML = '';
