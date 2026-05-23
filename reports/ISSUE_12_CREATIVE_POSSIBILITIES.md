@@ -288,6 +288,14 @@ Execution update:
   16ch AudioQueue input, `mIsAtmos = 1`, `mIsOARMode = 1`, `Forcing 7.1.4
   decoder for Atmos`, and `AUSpatialMixerV2` input layout
   `Atmos_7_1_4`.
+- A fresh tool-driven confirmation reproduced the same path end-to-end:
+  `hls-prepare` -> `hls-serve` -> QuickTime ->
+  `tvlog-capture --profile local-player` produced
+  `captures/alt_paths/20260523_fresh_quicktime_local_hls.json` with
+  `source=hls`, `pipeline_engine=FigStreamPlayer`, selected HLS AudioGroup
+  `atmos`, HLS audio codec `ec-3`, current/best audio
+  `ec+3 ch=16 48000 Hz spatialization=yes`, Atmos decoder active, OAR active,
+  forced 7.1.4 Atmos, and AUSpatialMixer layouts `Atmos_7_1_4`, `Stereo`.
 - The Ted Lasso downloaded-playback capture selected
   `downloaded_movpkg` / `audio-stereo-128_download-ap-aoc.tv.apple.com`.
   It still showed transient `ec+3`/16ch lower-level evidence from

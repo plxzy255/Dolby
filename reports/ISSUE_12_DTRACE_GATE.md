@@ -900,6 +900,15 @@ persisted-HLS packages into a serveable HLS folder.
 `dolby-tool hls-serve <folder> --open quicktime` now provides the
 Range-capable localhost server needed for this workflow.
 
+Fresh end-to-end confirmation (2026-05-23): using the merged tooling,
+`hls-prepare` -> `hls-serve` -> QuickTime ->
+`tvlog-capture --profile local-player` produced
+`captures/alt_paths/20260523_fresh_quicktime_local_hls.json` with
+`source=hls`, `pipeline_engine=FigStreamPlayer`, selected HLS AudioGroup
+`atmos`, HLS audio codec `ec-3`, current/best audio
+`ec+3 ch=16 48000 Hz spatialization=yes`, Atmos decoder active, OAR active,
+forced 7.1.4 Atmos, and AUSpatialMixer layouts `Atmos_7_1_4`, `Stereo`.
+
 ## Bottom line (2026-05-23)
 
 - **For local-file Atmos playback with `is rendering spatial audio = true`
