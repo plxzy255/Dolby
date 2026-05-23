@@ -17,6 +17,7 @@ from .local_hls import (
     playlist_url,
     prepare_hls_from_movpkg,
     prepare_hls_summary_markdown,
+    running_hls_server,
 )
 from .movpkg import (
     analyze_movpkg,
@@ -54,6 +55,9 @@ def main() -> None:
         return
     if len(sys.argv) > 1 and sys.argv[1] == "hls-package":
         _main_hls_package(sys.argv[2:])
+        return
+    if len(sys.argv) > 1 and sys.argv[1] == "hls-package-capture":
+        _main_hls_package_capture(sys.argv[2:])
         return
 
     parser = argparse.ArgumentParser(prog="dolby-tool")
@@ -237,6 +241,56 @@ def _main_hls_package(argv: list[str]) -> None:
         print(json.dumps(summary, indent=2, sort_keys=True))
     else:
         print(package_hls_summary_markdown(summary))
+
+
+def _main_hls_package_capture(argv: list[str]) -> None:
+    parser = argparse.ArgumentParser(prog="dolby-tool hls-package-capture")
+    parser.add_argument("input", help="Local media file to stream-copy into fMP4 HLS.")
+    parser.add_argument("output_dir", help="Output HLS directory for the temporary server.")
+    parser.add_argument("--overwrite", action="store_true", help="Allow replacing an existing output dir.")
+    parser.add_argument("--audio-stream", type=int, default=0, help="Zero-based input audio stream to map.")
+    parser.add_argument("--segment-time", type=float, default=6.0, help="Target HLS segment duration.")
+    parser.add_argument("--seconds", type=float, default=60.0, help="Capture duration after opening QuickTime.")
+    parser.add_argument("--host", default="127.0.0.1", help="Bind host; keep loopback for local playback.")
+    parser.add_argument("--port", type=int, default=0, help="Bind port. Default 0 uses an ephemeral port.")
+    parser.add_argument("--playlist", default="master.m3u8", help="Playlist filename to open.")
+    parser.add_argument("--output", help="Optional path to write the structured JSON capture summary.")
+    parser.add_argument(
+        "--combined",
+        action="store_true",
+        help="Mux audio and video into one media playlist instead of a separate audio group.",
+    )
+    parser.add_argument("--json", action="store_true", help="Print JSON instead of Markdown.")
+    args = parser.parse_args(argv)
+
+    package_summary = package_hls_from_file(
+        args.input,
+        args.output_dir,
+        overwrite=args.overwrite,
+        audio_stream=args.audio_stream,
+        segment_time=args.segment_time,
+        split_audio_group=not args.combined,
+    )
+    with running_hls_server(args.output_dir, host=args.host, port=args.port, quiet=True) as server:
+        url = playlist_url(server, args.playlist)
+        capture = LogCapture(predicate=LOCAL_PLAYER_PREDICATE)
+        print(f"Serving HLS from {args.output_dir}", file=sys.stderr, flush=True)
+        print(f"Opening QuickTime URL: {url}", file=sys.stderr, flush=True)
+        print(f"Capturing local-player playback logs for {args.seconds:g}s...", file=sys.stderr, flush=True)
+        capture.start()
+        open_hls_url(url, "quicktime")
+        try:
+            time.sleep(max(args.seconds, 0))
+        except KeyboardInterrupt:
+            pass
+        summary = capture.stop()
+    summary["hls_package"] = package_summary
+    summary["hls_url"] = url
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as f:
+            json.dump(summary, f, indent=2, sort_keys=True)
+            f.write("\n")
+    _print_tvlog_summary(summary, as_json=args.json)
 
 
 def _predicate_for_profile(profile: str) -> str:
