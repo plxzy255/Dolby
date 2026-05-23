@@ -9,6 +9,7 @@ import time
 
 import uvicorn
 
+from .local_hls import create_hls_server, open_hls_url, playlist_url
 from .movpkg import analyze_movpkg, movpkg_summary_markdown
 from .tvlog import (
     LOCAL_PLAYER_PREDICATE,
@@ -28,6 +29,9 @@ def main() -> None:
         return
     if len(sys.argv) > 1 and sys.argv[1] == "tvlog-capture":
         _main_tvlog_capture(sys.argv[2:])
+        return
+    if len(sys.argv) > 1 and sys.argv[1] == "hls-serve":
+        _main_hls_serve(sys.argv[2:])
         return
 
     parser = argparse.ArgumentParser(prog="dolby-tool")
@@ -118,6 +122,38 @@ def _main_tvlog_capture(argv: list[str]) -> None:
             json.dump(summary, f, indent=2, sort_keys=True)
             f.write("\n")
     _print_tvlog_summary(summary, as_json=args.json)
+
+
+def _main_hls_serve(argv: list[str]) -> None:
+    parser = argparse.ArgumentParser(prog="dolby-tool hls-serve")
+    parser.add_argument("directory", help="Prepared HLS directory containing a playlist.")
+    parser.add_argument("--playlist", default="master.m3u8", help="Playlist filename to print/open.")
+    parser.add_argument("--host", default="127.0.0.1", help="Bind host; keep loopback for local playback.")
+    parser.add_argument("--port", type=int, default=8765, help="Bind port. Use 0 for an ephemeral port.")
+    parser.add_argument(
+        "--open",
+        choices=["none", "quicktime", "safari"],
+        default="none",
+        help="Optionally open the playlist URL in an Apple player.",
+    )
+    parser.add_argument("--quiet", action="store_true", help="Suppress request logging.")
+    args = parser.parse_args(argv)
+
+    server = create_hls_server(args.directory, host=args.host, port=args.port, quiet=args.quiet)
+    url = playlist_url(server, args.playlist)
+    print(f"Serving HLS from {args.directory}", flush=True)
+    print(f"URL: {url}", flush=True)
+    if args.open != "none":
+        open_hls_url(url, args.open)
+        print(f"Opened in {args.open}.", flush=True)
+    print("Press Ctrl-C to stop.", flush=True)
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
 
 
 def _predicate_for_profile(profile: str) -> str:

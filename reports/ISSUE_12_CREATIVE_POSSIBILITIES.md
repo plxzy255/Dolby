@@ -275,8 +275,9 @@ Execution update:
   not evidence that the full episode downloaded Atmos.
 - A local HTTP HLS package built from
   `/Users/psp/Desktop/Dolby Spatial Test.movpkg` was served from
-  `.tmp/alt_hls`. A Range-capable Node server on `127.0.0.1:8765` was
-  needed for QuickTime/Safari byterange requests.
+  `.tmp/alt_hls`. A Range-capable localhost server was needed for
+  QuickTime/Safari byterange requests; this is now repeatable via
+  `dolby-tool hls-serve .tmp/alt_hls --open quicktime`.
 - TV.app did not open that arbitrary HLS URL through `http`, `itls`,
   `itlss`, `itvls`, or `itvlss`; it produced no playback events and made no
   localhost fetches.
